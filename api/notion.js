@@ -1,6 +1,8 @@
 export const config = {
   api: {
-    bodyParser: true,
+    bodyParser: {
+      sizeLimit: '4mb',
+    },
   },
 };
 
@@ -10,10 +12,13 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { endpoint, method = "PATCH", body } = req.body || {};
+  let body = req.body;
+  if (!body || typeof body === 'string') {
+    try { body = JSON.parse(body || '{}'); } catch { body = {}; }
+  }
 
+  const { endpoint, method = "PATCH", body: notionBody } = body;
   if (!endpoint) return res.status(400).json({ error: "Missing endpoint" });
 
   try {
@@ -24,9 +29,8 @@ export default async function handler(req, res) {
         "Content-Type": "application/json",
         "Notion-Version": "2022-06-28",
       },
-      body: method !== "GET" ? JSON.stringify(body) : undefined,
+      body: method !== "GET" ? JSON.stringify(notionBody) : undefined,
     });
-
     const data = await response.json();
     return res.status(response.status).json(data);
   } catch (err) {
