@@ -3,21 +3,25 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 
-  if (req.method === "OPTIONS") {
-    res.status(200).end();
-    return;
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
 
   let body = req.body;
 
-  // Manual parse if body isn't already an object
-  if (typeof body === "string") {
+  if (!body || Object.keys(body).length === 0) {
+    body = await new Promise((resolve) => {
+      let data = "";
+      req.on("data", (chunk) => (data += chunk));
+      req.on("end", () => {
+        try { resolve(JSON.parse(data)); }
+        catch { resolve({}); }
+      });
+    });
+  } else if (typeof body === "string") {
     try { body = JSON.parse(body); } catch { body = {}; }
   }
 
-  if (!body || !body.messages) {
-    res.status(400).json({ error: "Bad request", body: JSON.stringify(body) });
-    return;
+  if (!body?.messages) {
+    return res.status(400).json({ error: "Missing messages", received: body });
   }
 
   const apiRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -32,5 +36,5 @@ export default async function handler(req, res) {
 
   const text = await apiRes.text();
   res.setHeader("Content-Type", "application/json");
-  res.status(apiRes.status).send(text);
+  return res.status(apiRes.status).send(text);
 }
