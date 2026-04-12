@@ -1,8 +1,11 @@
 {
-    "functions": {
-          "api/*.js": {
-                  "memory": 512,
-                  "maxDuration": 30
-          }
-    }
+  "functions": {
+    "api/proxy.js": { "memory": 1024, "maxDuration": 30 },
+    "api/notion.js": { "memory": 1024, "maxDuration": 30 }
+  },
+  "routes": [
+    { "src": "/api/proxy", "dest": "/api/proxy.js" },
+    { "src": "/api/notion", "dest": "/api/notion.js" },
+    { "src": "/(.*)", "dest": "/public/$1" }
+  ]
 }
