@@ -3,9 +3,8 @@
     "api/proxy.js": { "memory": 1024, "maxDuration": 30 },
     "api/notion.js": { "memory": 1024, "maxDuration": 30 }
   },
-  "routes": [
-    { "src": "/api/proxy", "dest": "/api/proxy.js" },
-    { "src": "/api/notion", "dest": "/api/notion.js" },
-    { "src": "/(.*)", "dest": "/public/$1" }
+  "rewrites": [
+    { "source": "/api/proxy", "destination": "/api/proxy.js" },
+    { "source": "/api/notion", "destination": "/api/notion.js" }
   ]
 }
