@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Athlete Dashboard v4 — Day 31+</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#f8fafc;-webkit-text-size-adjust:100%}
+input,select,textarea,button{font-family:inherit}
+input[type=number]::-webkit-inner-spin-button{opacity:1}
+input[type=file]{display:none}
+textarea{resize:none}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,useRef,createElement:h}=React;
+
+// ─────────────────────────────────────────────
+// FOOD LIBRARY — sorted by popularity, defaults tuned to most common input
+// ─────────────────────────────────────────────
+const FOODS=[
+  {name:"Chick & Go",        cal:387,protein:81,sugar:0,  fat:7,  per:100,def:30, lustig:2,  rank:1},
+  {name:"Protein tortilla",  cal:180,protein:12,sugar:1,  fat:4,  per:1,  def:2,  lustig:1,  rank:2},
+  {name:"Activus Protein Bar",cal:142,protein:12,sugar:2, fat:6.4,per:40, def:1,  lustig:1,  rank:3},
+  {name:"Egg",               cal:70, protein:6, sugar:0,  fat:5,  per:1,  def:3,  lustig:2,  rank:4},
+  {name:"Peanut butter",     cal:590,protein:25,sugar:3,  fat:50, per:100,def:30, lustig:2,  rank:5},
+  {name:"Hard cheese",       cal:400,protein:25,sugar:0,  fat:33, per:100,def:60, lustig:2,  rank:9},
+  {name:"Chicken breast",    cal:165,protein:31,sugar:0,  fat:3.6,per:100,def:200,lustig:2,  rank:7},
+  {name:"Greek yogurt",      cal:60, protein:10,sugar:4,  fat:0.4,per:100,def:180,lustig:1,  rank:8},
+  {name:"Instant oats",      cal:375,protein:13,sugar:1,  fat:7,  per:100,def:65, lustig:1,  rank:9},
+  {name:"Gainer",            cal:375,protein:30,sugar:10, fat:4,  per:100,def:80, lustig:0,  rank:10},
+  {name:"Beef Jerky",        cal:267,protein:58,sugar:1.3,fat:3.1,per:100,def:40, lustig:2,  rank:11},
+  {name:"Salmon",            cal:200,protein:22,sugar:0,  fat:12, per:100,def:150,lustig:2,  rank:12},
+  {name:"Mozzarella",        cal:250,protein:20,sugar:0,  fat:18, per:100,def:180,lustig:2,  rank:13},
+  {name:"Croissant savoury", cal:320,protein:11,sugar:3,  fat:18, per:1,  def:1,  lustig:0,  rank:14},
+  {name:"Croissant plain",   cal:280,protein:5, sugar:5,  fat:15, per:1,  def:1,  lustig:-1, rank:15},
+  {name:"White rice cooked", cal:130,protein:2.5,sugar:0, fat:0.3,per:100,def:150,lustig:0,  rank:16},
+  {name:"Burrito large",     cal:850,protein:38,sugar:8,  fat:30, per:1,  def:1,  lustig:0,  rank:17},
+  {name:"Milka chocolate",   cal:530,protein:6, sugar:52, fat:30, per:100,def:100,lustig:-2, rank:18},
+  {name:"KitKat",            cal:526,protein:5.7,sugar:46,fat:30, per:100,def:99, lustig:-2, rank:19},
+  {name:"Džiugas cheese",    cal:366,protein:33,sugar:0,  fat:26, per:100,def:30, lustig:2,  rank:5},
+  {name:"Salmon pâté",       cal:190,protein:14,sugar:1,  fat:14, per:100,def:95, lustig:2,  rank:6},
+  {name:"FJORD Omega-3 (2×)",cal:0,  protein:0, sugar:0,  fat:0,  per:1,  def:2,  lustig:2,  rank:22, omega3:0.97},
+];
+
+// ─────────────────────────────────────────────
+// TRAINING — scientifically optimised
+// Research basis: meta-analyses (Schoenfeld 2017, Krieger 2010) show
+// 3-5 sets × 6-12 reps at 65-85% 1RM optimal for hypertrophy.
+// Compound lifts: 4-5 sets; isolation: 3 sets.
+// Face pulls / rear delts: higher rep range (15-20) for joint health.
+// ─────────────────────────────────────────────
+const EU=[
+  {name:"Weighted Pull-ups",     tag:"pull",sets:4,reps:5, weight:0,  unit:"BW",   note:"Primary target. Once bodyweight clean, add 5kg plate. Currently −10kg assist"},
+  {name:"DB Bench Press",        tag:"push",sets:4,reps:6, weight:28, unit:"kg",   note:"Strength focus. 4×6 at 28kg → unlock 30kg. Add 2kg when 4×6 clean"},
+  {name:"Seated Row Machine",    tag:"pull",sets:4,reps:8, weight:60, unit:"kg",   note:"Horizontal pull. Full scapular retraction. Progress to 70kg"},
+  {name:"Chest-Supported Row",   tag:"pull",sets:3,reps:10,weight:16, unit:"kg",   note:"Mid-back thickness. Progress to 18kg when 3×10 easy"},
+  {name:"Incline DB Press",      tag:"push",sets:3,reps:8, weight:22, unit:"kg",   note:"Upper chest. 3×8 before 24kg"},
+  {name:"Lat Pulldown",          tag:"pull",sets:3,reps:8, weight:60, unit:"kg",   note:"Vertical pull volume. Progress to 70kg"},
+  {name:"Lateral Raises",        tag:"push",sets:3,reps:15,weight:10, unit:"kg",   note:"Shoulder stability. 3×15 before 12kg"},
+  {name:"Face Pulls",            tag:"rear",sets:4,reps:20,weight:30, unit:"kg",   note:"🔑 Non-negotiable every session. Rotator cuff + rear delt. Light, high reps"},
+  {name:"Dead Hangs",            tag:"core",sets:3,reps:1, weight:0,  unit:"30-60s",note:"🔑 NEW — decompresses spine, builds pull-up grip. Hold 30-60s each"},
+  {name:"Tricep Pulldowns",      tag:"push",sets:3,reps:12,weight:45, unit:"kg",   note:"Finisher. 3×12 before 50kg"},
+];
+
+const EL=[
+  {name:"Barbell Squat",         tag:"legs",sets:4,reps:5, weight:70,  unit:"kg",  note:"Strength focus. 4×5 progression. Add 2.5kg when 4×5 clean. Target: 90kg"},
+  {name:"Romanian Deadlift",     tag:"post",sets:4,reps:6, weight:80,  unit:"kg",  note:"🔑 Primary lower back strengthener. 3s slow eccentric every rep. Target: 100kg"},
+  {name:"Jefferson Curl",        tag:"post",sets:3,reps:8, weight:15,  unit:"kg",  note:"🔑 NEW — best lower back mobility+strength. Stand on plate, roll spine down slowly"},
+  {name:"Back Extensions + load",tag:"core",sets:4,reps:12,weight:10,  unit:"kg",  note:"🔑 Direct lower back. Start +10kg plate, add 5kg when 4×12 clean"},
+  {name:"Forward Lunges",        tag:"legs",sets:3,reps:12,weight:25,  unit:"kg",  note:"Progress to 27.5kg when all sets clean"},
+  {name:"Hip Abductor",          tag:"hips",sets:3,reps:15,weight:70,  unit:"kg",  note:"BJJ guard retention. Progress to 80kg"},
+  {name:"Inner Thigh Adductor",  tag:"hips",sets:3,reps:15,weight:50,  unit:"kg",  note:"BJJ inside control. Progress to 60kg"},
+  {name:"Leg Curl Machine",      tag:"post",sets:3,reps:12,weight:30,  unit:"kg",  note:"Hamstring balance for lower back. Build to 40kg"},
+  {name:"Copenhagen Plank",      tag:"core",sets:3,reps:1, weight:0,   unit:"20-30s",note:"🔑 NEW — lateral hip stability, reduces lower back strain in BJJ"},
+];
+
+const TC={pull:"#2563eb",push:"#f59e0b",core:"#ef4444",legs:"#8b5cf6",post:"#10b981",hips:"#ec4899",rear:"#6366f1"};
+
+const MILESTONES=[
+  {key:"10min",label:"10 MIN",    desc:"Dopamine levels drop and prolactin increases",days:0},
+  {key:"day1", label:"DAY 1",    desc:"High motivation – lingering brain chemicals",days:1},
+  {key:"2-4",  label:"2–4 DAYS", desc:"Cravings increase – mood drops",days:2},
+  {key:"5-6",  label:"5–6 DAYS", desc:"Slight drop in cravings and brain fog",days:5},
+  {key:"day7", label:"DAY 7",    desc:"Big testosterone spike",days:7},
+  {key:"day8", label:"DAY 8",    desc:"Testosterone drops back down",days:8},
+  {key:"9-14", label:"9–14 DAYS",desc:"Increased energy – more confidence",days:9},
+  {key:"day15",label:"DAY 15",   desc:"More androgen receptors",days:15},
+  {key:"16-21",label:"16–21 DAYS",desc:"Social anxiety drops – cravings & flashbacks almost gone",days:16},
+  {key:"21-30",label:"21–30 DAYS",desc:"More attention from women",days:21},
+  {key:"30-40",label:"30–40 DAYS",desc:"Increased concentration and sharper thinking",days:30},
+  {key:"40-50",label:"40–50 DAYS",desc:"Creativity increases",days:40},
+  {key:"50-70",label:"50–70 DAYS",desc:"More grounded in your masculinity",days:50},
+  {key:"70-90",label:"70–90 DAYS",desc:"Small things in life now give you more pleasure",days:70},
+  {key:"day90",label:"DAY 90",   desc:"Feels like a different life",days:90},
+];
+
+// ─────────────────────────────────────────────
+// STORAGE
+// ─────────────────────────────────────────────
+const fmtKey=d=>d instanceof Date?d.toISOString().split("T")[0]:d;
+const todayStr=()=>new Date().toISOString().split("T")[0];
+const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}};
+const ld=(k)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch{return null;}};
+const saveDay=(date,data)=>sv("d4_"+fmtKey(date),data);
+const loadDay=(date)=>ld("d4_"+fmtKey(date));
+const saveG=(k,v)=>sv("g4_"+k,v);
+const loadG=(k,def)=>{const v=ld("g4_"+k);return v!==null?v:def;};
+const emptyDay=()=>({weight:"",sleepScore:"",bedtime:"",coffees:0,omega3:0,ltheanine:0,creatine:0,meals:[],exs:[],trainingType:"upper",notes:""});
+
+// ─────────────────────────────────────────────
+// LUSTIG SCORE
+// ─────────────────────────────────────────────
+function calcLustig(meals,sugar){
+  if(!meals||!meals.length)return{score:0,label:"No data",color:"#94a3b8"};
+  let pts=0,max=0;
+  meals.forEach(m=>{pts+=(m.lustig||0);max+=2;});
+  if(sugar>75)pts-=3;else if(sugar>50)pts-=2;else if(sugar<=25)pts+=2;else if(sugar<=35)pts+=1;
+  const sc=Math.max(0,Math.min(10,max>0?Math.round(((pts+max)/(max*2))*10):5));
+  return{score:sc,label:sc>=8?"Excellent":sc>=6?"Good":sc>=4?"Fair":"Poor",color:sc>=8?"#10b981":sc>=6?"#f59e0b":sc>=4?"#f97316":"#ef4444"};
+}
+
+// ─────────────────────────────────────────────
+// AI stubs — ask Claude in chat for estimates
+// ─────────────────────────────────────────────
+async function estimateMacros(name){
+  return null; // handled by manual entry
+}
+async function analyzePhoto(b64,mime){
+  return [];
+}
+
+// ─────────────────────────────────────────────
+// STYLE HELPERS
+// ─────────────────────────────────────────────
+const card={background:"#fff",borderRadius:14,padding:14,marginBottom:10,boxShadow:"0 1px 3px rgba(0,0,0,0.05)"};
+const stt={fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:0.8,textTransform:"uppercase",marginBottom:10};
+const inp={width:"100%",padding:"9px 11px",borderRadius:9,border:"1.5px solid #e2e8f0",fontSize:13,outline:"none",background:"#f8fafc",boxSizing:"border-box"};
+const btn=(bg,col,ex={})=>({padding:"9px 14px",borderRadius:9,border:"none",cursor:"pointer",fontWeight:600,fontSize:12,background:bg,color:col,...ex});
+const pill=(bg,col)=>({padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:600,background:bg,color:col});
+
+function NumBox({value,onChange,min=0,max=999,w=56}){
+  return h("input",{type:"number",value,min,max,onChange:e=>onChange(e.target.value),style:{width:w,padding:"7px 6px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,fontWeight:700,textAlign:"center",outline:"none",background:"#f8fafc"}});
+}
+function Ring({val,max,color,label,sub,sz=76}){
+  const r=(sz-8)/2,c=2*Math.PI*r,off=c-(Math.min(100,Math.round(val/max*100))/100)*c;
+  return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:3}},
+    h("svg",{width:sz,height:sz},
+      h("circle",{cx:sz/2,cy:sz/2,r,fill:"none",stroke:"#f1f5f9",strokeWidth:8}),
+      h("circle",{cx:sz/2,cy:sz/2,r,fill:"none",stroke:color,strokeWidth:8,strokeLinecap:"round",strokeDasharray:c,strokeDashoffset:off,transform:`rotate(-90 ${sz/2} ${sz/2})`}),
+      h("text",{x:sz/2,y:sz/2-3,textAnchor:"middle",fontSize:13,fontWeight:700,fill:"#1e293b"},Math.round(val)),
+      h("text",{x:sz/2,y:sz/2+11,textAnchor:"middle",fontSize:8,fill:"#94a3b8"},sub)
+    ),
+    h("span",{style:{fontSize:10,color:"#64748b",fontWeight:600}},label)
+  );
+}
+function Bar({label,val,max,color,unit}){
+  return h("div",{style:{marginBottom:10}},
+    h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:4}},
+      h("span",{style:{fontSize:11,fontWeight:600,color:"#475569"}},label),
+      h("span",{style:{fontSize:11,color:"#64748b"}},`${Math.round(val)}${unit} / ${max}${unit}`)
+    ),
+    h("div",{style:{height:5,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}},
+      h("div",{style:{height:"100%",width:Math.min(100,Math.round(val/max*100))+"%",background:color,borderRadius:3,transition:"width 0.5s"}})
+    )
+  );
+}
+
+// ─────────────────────────────────────────────
+// FOOD ENTRY ROW (with edit/delete)
+// ─────────────────────────────────────────────
+function FoodRow({meal,onDelete,onEdit}){
+  const [editing,setEditing]=useState(false);
+  const [vals,setVals]=useState({name:meal.name,cal:meal.cal,protein:meal.protein,sugar:meal.sugar,fat:meal.fat});
+  const save=()=>{onEdit({...meal,...vals,cal:+vals.cal,protein:+vals.protein,sugar:+vals.sugar,fat:+vals.fat});setEditing(false);};
+  if(editing) return h("div",{style:{padding:"10px 0",borderBottom:"1px solid #f8fafc"}},
+    h("input",{style:{...inp,marginBottom:6},value:vals.name,onChange:e=>setVals(p=>({...p,name:e.target.value}))}),
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}},
+      ...["cal","protein","sugar","fat"].map(f=>h("input",{key:f,type:"number",style:inp,placeholder:f.charAt(0).toUpperCase()+f.slice(1),value:vals[f],onChange:e=>setVals(p=>({...p,[f]:e.target.value}))}))
+    ),
+    h("div",{style:{display:"flex",gap:6}},
+      h("button",{onClick:save,style:{...btn("#10b981","white"),flex:1,padding:"7px"}},"Save"),
+      h("button",{onClick:()=>setEditing(false),style:{...btn("#f1f5f9","#475569"),flex:1,padding:"7px"}},"Cancel")
+    )
+  );
+  return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f8fafc"}},
+    h("div",{style:{flex:1,minWidth:0}},
+      h("div",{style:{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},meal.name),
+      h("div",{style:{fontSize:10,color:"#94a3b8"}},meal.cal," kcal · ",meal.protein,"g P · ",meal.sugar,"g S")
+    ),
+    h("div",{style:{display:"flex",gap:4,flexShrink:0}},
+      h("button",{onClick:()=>setEditing(true),style:{background:"none",border:"none",color:"#94a3b8",fontSize:14,cursor:"pointer",padding:"2px 6px"}},"✏️"),
+      h("button",{onClick:onDelete,style:{background:"none",border:"none",color:"#fca5a5",fontSize:14,cursor:"pointer",padding:"2px 4px"}},"✕")
+    )
+  );
+}
+
+// ─────────────────────────────────────────────
+// EXERCISE ROW (with comment)
+// ─────────────────────────────────────────────
+function ExRow({ex,idx,onUpdate,onRemove}){
+  const [showNote,setShowNote]=useState(false);
+  const isBodyweight=ex.unit==="BW"||ex.unit.includes("−")||ex.unit==="light";
+  return h("div",{style:{...card,opacity:ex.done?0.5:1,transition:"opacity 0.2s",marginBottom:8}},
+    h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
+      h("div",{style:{width:20,height:20,borderRadius:"50%",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#64748b",flexShrink:0}},idx+1),
+      h("div",{style:{flex:1,fontSize:13,fontWeight:700,lineHeight:1.2}},ex.name,ex.custom&&h("span",{style:{fontSize:9,color:"#94a3b8",marginLeft:4}},"custom")),
+      h("span",{style:pill((TC[ex.tag]||"#64748b")+"22",TC[ex.tag]||"#64748b")},ex.tag),
+      h("div",{onClick:()=>onUpdate("done",!ex.done),style:{width:22,height:22,borderRadius:5,border:ex.done?"none":"1.5px solid #e2e8f0",background:ex.done?"#10b981":"white",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}},
+        ex.done&&h("span",{style:{color:"white",fontSize:13}},"✓")
+      )
+    ),
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,alignItems:"end",marginBottom:8}},
+      ...[{l:"Sets",f:"sets"},{l:"Reps",f:"reps"}].map(c=>
+        h("div",{key:c.f},
+          h("div",{style:{fontSize:10,color:"#94a3b8",fontWeight:600,marginBottom:4}},c.l),
+          h(NumBox,{value:ex[c.f],min:1,max:30,onChange:v=>onUpdate(c.f,v)})
+        )
+      ),
+      h("div",null,
+        h("div",{style:{fontSize:10,color:"#94a3b8",fontWeight:600,marginBottom:4}},"Weight"),
+        isBodyweight
+          ?h("div",{style:{fontSize:11,color:"#94a3b8",paddingTop:8}},ex.unit)
+          :h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+            h(NumBox,{value:ex.weight,min:0,max:300,onChange:v=>onUpdate("weight",v)}),
+            h("span",{style:{fontSize:10,color:"#94a3b8"}},ex.unit)
+          )
+      )
+    ),
+    // Comment field
+    h("div",null,
+      h("div",{onClick:()=>setShowNote(p=>!p),style:{fontSize:10,color:ex.note?"#3b82f6":"#94a3b8",cursor:"pointer",marginBottom:showNote?6:0,display:"flex",alignItems:"center",gap:4}},
+        h("span",null,showNote?"▾":"▸"),
+        ex.note?h("span",{style:{fontStyle:"italic",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:240}},ex.note):"Add note / progress comment"
+      ),
+      showNote&&h("textarea",{rows:2,placeholder:"e.g. 20kg feels too light now, try 22kg next session...",value:ex.note||"",onChange:e=>onUpdate("note",e.target.value),style:{...inp,fontSize:12,lineHeight:1.5,padding:"8px 10px"}})
+    ),
+    // Remove custom
+    ex.custom&&h("button",{onClick:onRemove,style:{...btn("#fef2f2","#ef4444"),padding:"4px 10px",fontSize:11,marginTop:6}},"Remove")
+  );
+}
+
+// ─────────────────────────────────────────────
+// FINISH MODAL — copy-paste flow
+// ─────────────────────────────────────────────
+
+function FinishModal({day,exs,date,rebootStreak,onClose,onSave}){
+  const tot=day.meals.reduce((a,m)=>({cal:a.cal+(m.cal||0),protein:a.protein+(m.protein||0),sugar:a.sugar+(m.sugar||0),fat:a.fat+(m.fat||0)}),{cal:0,protein:0,sugar:0,fat:0});
+  const o3=(day.meals.reduce((a,m)=>a+(m.omega3||0),0)+day.omega3).toFixed(2);
+  const lustig=calcLustig(day.meals,tot.sugar);
+  const [copied,setCopied]=useState(false);
+
+  const mealLines=day.meals.map(m=>`  - ${m.name}: ${m.cal}kcal, ${m.protein}g P, ${m.sugar}g S`).join("\n")||"  None logged";
+  const exLines=exs.map(e=>`  - ${e.name}: ${e.sets}x${e.reps}${!e.unit.includes("BW")&&!e.unit.includes("−")?" @ "+e.weight+e.unit:""} ${e.done?"✓":""}${e.note?" ["+e.note+"]":""}`).join("\n")||"  Rest day";
+
+  const summary=`DAY FINISHED — ${date}
+Weight: ${day.weight||"—"}kg | Sleep: ${day.sleepScore||"—"} | Bedtime: ${day.bedtime||"—"}
+Calories: ${Math.round(tot.cal)}kcal | Protein: ${Math.round(tot.protein)}g | Sugar: ${Math.round(tot.sugar)}g
+Omega-3: ${o3}g | Coffees: ${day.coffees} | L-Theanine: ${day.ltheanine}mg | Creatine: ${day.creatine}mg
+Lustig Score: ${lustig.score}/10 (${lustig.label}) | Reboot streak: ${rebootStreak} days
+Meals:
+${mealLines}
+Training (${exs.filter(e=>e.done).length}/${exs.length} done):
+${exLines}`;
+
+  const doCopy=()=>{
+    const done=()=>{setCopied(true);saveDay(date,{...day,exs,finalized:true});onSave({tot,o3,lustig});setTimeout(()=>setCopied(false),5000);};
+    navigator.clipboard.writeText(summary).then(done).catch(()=>{
+      const ta=document.getElementById("fin-ta");
+      if(ta){ta.select();document.execCommand("copy");}
+      done();
+    });
+  };
+
+  return h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:200,display:"flex",alignItems:"flex-end"},onClick:onClose},
+    h("div",{onClick:e=>e.stopPropagation(),style:{background:"#fff",borderRadius:"20px 20px 0 0",padding:20,width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto"}},
+      h("div",{style:{width:40,height:4,background:"#e2e8f0",borderRadius:2,margin:"0 auto 16px"}}),
+      h("h2",{style:{fontSize:18,fontWeight:800,marginBottom:4}},"Finish Day"),
+      h("p",{style:{fontSize:12,color:"#64748b",marginBottom:12}},"Copy this summary and paste it into Claude chat — Claude will sync to Notion."),
+      h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
+        h("div",{style:{background:"#f0fdf4",borderRadius:10,padding:10,textAlign:"center"}},
+          h("div",{style:{fontSize:10,color:"#16a34a"}},"Lustig Score"),
+          h("div",{style:{fontSize:22,fontWeight:800,color:lustig.color}},lustig.score,h("span",{style:{fontSize:12}},"/10")),
+          h("div",{style:{fontSize:10,color:"#64748b"}},lustig.label)
+        ),
+        h("div",{style:{background:"#eff6ff",borderRadius:10,padding:10,textAlign:"center"}},
+          h("div",{style:{fontSize:10,color:"#2563eb"}},"Reboot Streak"),
+          h("div",{style:{fontSize:22,fontWeight:800,color:"#2563eb"}},rebootStreak,h("span",{style:{fontSize:12}},"d")),
+          h("div",{style:{fontSize:10,color:"#64748b"}},"Keep going!")
+        )
+      ),
+      h("textarea",{id:"fin-ta",readOnly:true,value:summary,style:{width:"100%",height:200,padding:"10px 12px",borderRadius:10,border:"1.5px solid #e2e8f0",fontSize:11,lineHeight:1.7,color:"#475569",background:"#f8fafc",resize:"none",outline:"none",fontFamily:"monospace"}}),
+      h("button",{onClick:doCopy,style:{...btn(copied?"#10b981":"#0f172a","white"),width:"100%",padding:14,fontSize:14,marginTop:10,borderRadius:12,transition:"background 0.2s"}},
+        copied?"✓ Copied! Paste into Claude chat →":"📋 Copy Summary"
+      ),
+      copied&&h("div",{style:{marginTop:8,padding:"10px 12px",borderRadius:10,background:"#f0fdf4",fontSize:12,color:"#16a34a",textAlign:"center",fontWeight:600}},"Now paste this in Claude chat — Claude will sync to Notion ✅"),
+      h("button",{onClick:onClose,style:{...btn("#f1f5f9","#475569"),width:"100%",padding:12,marginTop:8,borderRadius:12}},copied?"Close":"Cancel")
+    )
+  );
+}
+
+// ─────────────────────────────────────────────
+// MAIN APP
+// ─────────────────────────────────────────────
+function App(){
+  const [tab,setTab]=useState("dash");
+  const [viewDate,setViewDate]=useState(todayStr());
+  const isToday=viewDate===todayStr();
+
+  const [day,setDay]=useState(()=>loadDay(todayStr())||emptyDay());
+  const [exs,setExs]=useState(()=>{const d=loadDay(todayStr());return d&&d.exs&&d.exs.length?d.exs:EU.map(e=>({...e,done:false}));});
+
+  const [rebootStreak,setRebootStreak]=useState(()=>loadG("rebootStreak",0));
+  const [rebootStart,setRebootStart]=useState(()=>loadG("rebootStart",""));
+
+  const [fsearch,setFsearch]=useState("");
+  const [qtys,setQtys]=useState({});
+  const [manual,setManual]=useState({name:"",cal:"",protein:"",sugar:"",fat:""});
+  const [showM,setShowM]=useState(false);
+  const [showCEx,setShowCEx]=useState(false);
+  const [cex,setCex]=useState({name:"",tag:"push",sets:3,reps:10,weight:0,unit:"kg",note:""});
+  const [photoItems,setPhotoItems]=useState(null);
+  const [photoLoading,setPhotoLoading]=useState(false);
+  const [showFinish,setShowFinish]=useState(false);
+  const [saveFlash,setSaveFlash]=useState(false);
+  const fileRef=useRef();
+
+  // Load day on date switch
+  useEffect(()=>{
+    const d=loadDay(viewDate)||emptyDay();
+    setDay(d);
+    setExs(d.exs&&d.exs.length?d.exs:EU.map(e=>({...e,done:false})));
+  },[viewDate]);
+
+  // Auto-save
+  useEffect(()=>{saveDay(viewDate,{...day,exs});},[day,exs]);
+
+  useEffect(()=>{saveG("rebootStreak",rebootStreak);},[rebootStreak]);
+  useEffect(()=>{saveG("rebootStart",rebootStart);},[rebootStart]);
+
+  const upd=(k,v)=>setDay(p=>({...p,[k]:v}));
+  const updEx=(i,k,v)=>setExs(p=>p.map((e,j)=>j===i?{...e,[k]:v}:e));
+  const removeEx=(i)=>setExs(p=>p.filter((_,j)=>j!==i));
+
+  const switchT=(t)=>{
+    if(t==="custom"){setExs([]);upd("trainingType","custom");}
+    else{setExs((t==="upper"?EU:EL).map(e=>({...e,done:false})));upd("trainingType",t);}
+  };
+
+  // Food helpers
+  const getQ=(f)=>qtys[f.name]!==undefined?qtys[f.name]:f.def;
+  const sc2=(f,field)=>Math.round(((f[field]||0)*(getQ(f)/f.per))*10)/10;
+
+  const tot=day.meals.reduce((a,m)=>({cal:a.cal+(m.cal||0),protein:a.protein+(m.protein||0),sugar:a.sugar+(m.sugar||0),fat:a.fat+(m.fat||0),omega3:a.omega3+(m.omega3||0)}),{cal:0,protein:0,sugar:0,fat:0,omega3:0});
+  const o3=tot.omega3+day.omega3;
+  const lt=day.ltheanine;
+  const cr=day.creatine;
+  const T={cal:2800,protein:170,sugar:35,omega3:1.5,lt:400,creatine:5000};
+  const sc=tot.sugar<=25?"#10b981":tot.sugar<=35?"#f59e0b":"#ef4444";
+  const done=exs.filter(e=>e.done).length;
+  const lustig=calcLustig(day.meals,tot.sugar);
+  const today=new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
+
+  const addFood=(f)=>{
+    const q=getQ(f),mult=q/f.per;
+    setDay(p=>({...p,meals:[...p.meals,{name:`${f.name} (${q}${f.per===1?"×":"g"})`,cal:Math.round((f.cal||0)*mult),protein:Math.round((f.protein||0)*mult*10)/10,sugar:Math.round((f.sugar||0)*mult*10)/10,fat:Math.round((f.fat||0)*mult*10)/10,omega3:Math.round((f.omega3||0)*mult*10)/10,lustig:f.lustig||0,id:Date.now()+Math.random()}]}));
+    setFsearch("");
+  };
+  const editFood=(id,updated)=>setDay(p=>({...p,meals:p.meals.map(m=>m.id===id?{...m,...updated}:m)}));
+  const delFood=(id)=>setDay(p=>({...p,meals:p.meals.filter(m=>m.id!==id)}));
+
+  const addManual=()=>{
+    if(!manual.name)return;
+    const macros={cal:+manual.cal||0,protein:+manual.protein||0,sugar:+manual.sugar||0,fat:+manual.fat||0,lustig:0};
+    setDay(p=>({...p,meals:[...p.meals,{name:manual.name,...macros,id:Date.now()}]}));
+    setManual({name:"",cal:"",protein:"",sugar:"",fat:""});setShowM(false);
+  };
+
+  const addCEx=()=>{
+    if(!cex.name)return;
+    setExs(p=>[...p,{...cex,sets:+cex.sets,reps:+cex.reps,weight:+cex.weight,done:false,custom:true}]);
+    setCex({name:"",tag:"push",sets:3,reps:10,weight:0,unit:"kg",note:""});setShowCEx(false);
+  };
+
+  const handlePhoto=async(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setPhotoLoading(true);setPhotoItems(null);
+    const reader=new FileReader();
+    reader.onload=async(ev)=>{
+      const items=await analyzePhoto(ev.target.result.split(",")[1],file.type);
+      setPhotoItems(items||[]);setPhotoLoading(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value="";
+  };
+
+  const confirmPhotoItem=(item,idx)=>{
+    setDay(p=>({...p,meals:[...p.meals,{...item,id:Date.now()}]}));
+    setPhotoItems(p=>p.filter((_,i)=>i!==idx));
+  };
+
+  const handleSaveProgress=()=>{saveDay(viewDate,{...day,exs});setSaveFlash(true);setTimeout(()=>setSaveFlash(false),2000);};
+
+  const ff=FOODS.filter(f=>f.name.toLowerCase().includes(fsearch.toLowerCase())).sort((a,b)=>a.rank-b.rank);
+  const last7=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-i);return fmtKey(d);});
+
+  const TABS=[{id:"dash",icon:"◉",label:"Today"},{id:"food",icon:"⊕",label:"Food"},{id:"train",icon:"◈",label:"Train"},{id:"reboot",icon:"🔥",label:"Reboot"},{id:"log",icon:"≡",label:"Log"}];
+
+  return h("div",{style:{fontFamily:"'DM Sans',system-ui,sans-serif",background:"#f8fafc",minHeight:"100vh",maxWidth:480,margin:"0 auto",paddingBottom:80}},
+
+    // ── HEADER
+    h("div",{style:{background:"#0f172a",padding:"18px 16px 14px",color:"white"}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+        h("div",null,
+          h("h1",{style:{fontSize:20,fontWeight:800,letterSpacing:-0.5,margin:0}},"Athlete Dashboard"),
+          h("p",{style:{fontSize:11,color:"#94a3b8",marginTop:2}},isToday?today:viewDate)
+        ),
+        h("div",{style:{textAlign:"right"}},
+          h("div",{style:{fontSize:18,fontWeight:800,color:"#38bdf8"}},day.weight||"—"," ",h("span",{style:{fontSize:11,color:"#64748b"}},"kg")),
+          h("div",{style:{fontSize:10,color:"#64748b"}},"Weight")
+        )
+      ),
+      h("div",{style:{display:"flex",gap:6,marginTop:12,overflowX:"auto",paddingBottom:2,alignItems:"center"}},
+        // Last 7 days strip
+        last7.map(d=>{
+          const dd=new Date(d);
+          return h("div",{key:d,onClick:()=>setViewDate(d),style:{flexShrink:0,padding:"5px 10px",borderRadius:8,background:viewDate===d?"#38bdf8":"rgba(255,255,255,0.08)",cursor:"pointer",textAlign:"center",minWidth:44}},
+            h("div",{style:{fontSize:9,color:viewDate===d?"#0f172a":"#94a3b8",fontWeight:600}},d===todayStr()?"Today":dd.toLocaleDateString("en-GB",{weekday:"short"})),
+            h("div",{style:{fontSize:14,fontWeight:700,color:viewDate===d?"#0f172a":"white"}},dd.getDate())
+          );
+        }),
+        // Date picker
+        h("div",{style:{flexShrink:0,marginLeft:4,position:"relative"}},
+          h("input",{
+            type:"date",
+            value:viewDate,
+            max:todayStr(),
+            onChange:e=>{if(e.target.value)setViewDate(e.target.value);},
+            style:{padding:"5px 8px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.12)",color:"white",fontSize:11,fontWeight:600,outline:"none",cursor:"pointer",WebkitAppearance:"none",colorScheme:"dark"}
+          })
+        )
+      ),
+      // New Day button — only shows if not already on today
+      !isToday&&h("div",{style:{marginTop:8}},
+        h("button",{
+          onClick:()=>setViewDate(todayStr()),
+          style:{width:"100%",padding:"7px",borderRadius:8,border:"none",background:"#38bdf8",color:"#0f172a",fontSize:12,fontWeight:700,cursor:"pointer"}
+        },"↩ Back to Today — ",new Date().toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}))
+      )
+    ),
+
+    h("div",{style:{padding:"14px 14px 0"}},
+
+    // ══ DASHBOARD ══════════════════════════════════
+    tab==="dash"&&h("div",null,
+      h("div",{style:card},
+        h("div",{style:stt},"Daily Targets"),
+        h("div",{style:{display:"flex",justifyContent:"space-around",marginBottom:14}},
+          h(Ring,{val:tot.cal,max:T.cal,color:"#3b82f6",label:"Calories",sub:"kcal"}),
+          h(Ring,{val:tot.protein,max:T.protein,color:"#10b981",label:"Protein",sub:"g"}),
+          h(Ring,{val:tot.sugar,max:T.sugar,color:sc,label:"Sugar",sub:"g"}),
+          h(Ring,{val:o3,max:T.omega3,color:"#8b5cf6",label:"Omega-3",sub:"g"})
+        ),
+        h(Bar,{label:"Calories",val:tot.cal,max:T.cal,color:"#3b82f6",unit:" kcal"}),
+        h(Bar,{label:"Protein",val:tot.protein,max:T.protein,color:"#10b981",unit:"g"}),
+        h(Bar,{label:"Sugar",val:tot.sugar,max:T.sugar,color:sc,unit:"g"}),
+        h(Bar,{label:"L-Theanine",val:lt,max:T.lt,color:"#06b6d4",unit:"mg"}),
+        h(Bar,{label:"Creatine",val:cr,max:T.creatine,color:"#f97316",unit:"mg"}),
+        h("div",{style:{marginTop:10,padding:"9px 12px",borderRadius:10,background:"#f8fafc",display:"flex",alignItems:"center",gap:10}},
+          h("div",{style:{width:36,height:36,borderRadius:"50%",background:lustig.color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:lustig.color}},lustig.score),
+          h("div",null,h("div",{style:{fontSize:12,fontWeight:700}},"Lustig Score — ",lustig.label),h("div",{style:{fontSize:10,color:"#64748b"}},"Anti-inflammation diet rating"))
+        )
+      ),
+
+      h("div",{style:card},
+        h("div",{style:stt},"Morning Check-In"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+          ...[{l:"Weight (kg)",k:"weight",ph:"83.5"},{l:"Sleep Score",k:"sleepScore",ph:"82"},{l:"Bedtime",k:"bedtime",ph:"23:00"}].map(f=>
+            h("div",{key:f.k},h("div",{style:{fontSize:10,fontWeight:600,color:"#94a3b8",marginBottom:3}},f.l),h("input",{style:inp,value:day[f.k],onChange:e=>upd(f.k,e.target.value),placeholder:f.ph}))
+          ),
+          h("div",null,
+            h("div",{style:{fontSize:10,fontWeight:600,color:"#94a3b8",marginBottom:3}},"Coffees"),
+            h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+              h("button",{style:btn("#f1f5f9","#1e293b"),onClick:()=>upd("coffees",Math.max(0,day.coffees-1))},"−"),
+              h("span",{style:{fontSize:16,fontWeight:700,minWidth:20,textAlign:"center"}},day.coffees),
+              h("button",{style:btn(day.coffees>=2?"#fef2f2":"#f0fdf4",day.coffees>=2?"#ef4444":"#16a34a"),onClick:()=>upd("coffees",day.coffees+1)},"+"),
+              h("span",{style:{fontSize:10,color:day.coffees>2?"#ef4444":"#94a3b8"}},day.coffees>2?"over!":"/2")
+            )
+          )
+        ),
+        day.sleepScore&&h("div",{style:{padding:"9px 11px",borderRadius:9,background:+day.sleepScore>=82?"#f0fdf4":+day.sleepScore>=75?"#fefce8":"#fef2f2",display:"flex",gap:8,alignItems:"center"}},
+          h("span",{style:{fontSize:18}},+day.sleepScore>=82?"✅":+day.sleepScore>=75?"⚠️":"🔴"),
+          h("div",null,h("div",{style:{fontSize:12,fontWeight:700}},"Sleep: ",day.sleepScore),h("div",{style:{fontSize:10,color:"#64748b"}},+day.sleepScore>=82?"Great!":+day.sleepScore>=75?"Fair — aim for 23:00":"Poor — sleep early tonight"))
+        )
+      ),
+
+      h("div",{style:card},
+        h("div",{style:stt},"Meals (",day.meals.length,")"),
+        day.meals.length===0&&h("div",{style:{color:"#94a3b8",fontSize:12,textAlign:"center",padding:"8px 0"}},"No meals yet — tap Food tab"),
+        ...day.meals.slice(-4).map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u)}))
+      ),
+
+      h("div",{style:card},
+        h("div",{style:stt},"Training"),
+        h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:4}},
+          h("div",{style:{flex:1,height:6,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}},h("div",{style:{height:"100%",width:(done/Math.max(1,exs.length)*100)+"%",background:"#0f172a",borderRadius:3}})),
+          h("span",{style:{fontSize:12,fontWeight:700}},done,"/",exs.length)
+        ),
+        h("div",{style:{fontSize:10,color:"#94a3b8"}},day.trainingType," session — tap Training to manage")
+      ),
+
+      h("div",{style:{display:"flex",flexDirection:"column",gap:8,marginTop:4}},
+        h("button",{onClick:handleSaveProgress,style:{...btn(saveFlash?"#10b981":"#f1f5f9",saveFlash?"white":"#475569"),width:"100%",padding:12,fontSize:13,borderRadius:12,transition:"all 0.3s"}},saveFlash?"✓ Saved!":"💾 Save Progress"),
+        isToday&&h("button",{onClick:()=>setShowFinish(true),style:{...btn("#0f172a","white"),width:"100%",padding:14,fontSize:14,borderRadius:12}},"✓ Finish Day & Sync to Notion")
+      )
+    ),
+
+    // ══ FOOD ══════════════════════════════════════
+    tab==="food"&&h("div",null,
+      // Photo
+      h("div",{style:card},
+        h("div",{style:stt},"📷 Photo Log"),
+        h("div",{style:{background:"#f8fafc",borderRadius:10,padding:12,marginBottom:10,fontSize:12,color:"#64748b",textAlign:"center",lineHeight:1.6}},"📷 Photo AI — send your food photo to Claude in chat to get macros, then add manually below."),
+        h("input",{type:"file",accept:"image/*",ref:fileRef,onChange:handlePhoto}),
+        photoLoading&&h("div",{style:{textAlign:"center",color:"#94a3b8",fontSize:12,padding:"6px 0"}},"AI is identifying your food..."),
+        photoItems&&photoItems.length===0&&h("div",{style:{textAlign:"center",color:"#94a3b8",fontSize:12}},"No food detected — try a clearer photo"),
+        photoItems&&photoItems.map((item,idx)=>h("div",{key:idx,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 10px",borderRadius:9,background:"#f8fafc",marginBottom:6}},
+          h("div",null,h("div",{style:{fontSize:12,fontWeight:700}},item.name),h("div",{style:{fontSize:10,color:"#94a3b8"}},item.cal,"kcal · ",item.protein,"g P · ",item.sugar,"g S")),
+          h("div",{style:{display:"flex",gap:6}},
+            h("button",{onClick:()=>confirmPhotoItem(item,idx),style:{...btn("#10b981","white"),padding:"5px 12px",fontSize:11}},"Add"),
+            h("button",{onClick:()=>setPhotoItems(p=>p.filter((_,i)=>i!==idx)),style:{...btn("#f1f5f9","#475569"),padding:"5px 8px",fontSize:11}},"✕")
+          )
+        ))
+      ),
+
+      // Library
+      h("div",{style:card},
+        h("div",{style:stt},"Food Library"),
+        h("input",{style:{...inp,marginBottom:10},placeholder:"Search foods...",value:fsearch,onChange:e=>setFsearch(e.target.value)}),
+        h("div",{style:{maxHeight:320,overflowY:"auto"}},
+          ...ff.map((f,i)=>{
+            const q=getQ(f),isUnit=f.per===1;
+            return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #f8fafc",gap:8}},
+              h("div",{style:{flex:1,minWidth:0}},
+                h("div",{style:{fontSize:12,fontWeight:600}},f.name),
+                h("div",{style:{fontSize:10,color:"#94a3b8"}},sc2(f,"cal"),"kcal · ",sc2(f,"protein"),"g P · ",sc2(f,"sugar"),"g S")
+              ),
+              h("div",{style:{display:"flex",alignItems:"center",gap:5,flexShrink:0}},
+                h("input",{type:"number",min:isUnit?1:5,max:isUnit?20:2000,step:isUnit?1:5,value:q,onChange:e=>setQtys(p=>({...p,[f.name]:+e.target.value})),style:{width:50,padding:"5px 5px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12,fontWeight:700,textAlign:"center",outline:"none",background:"#f8fafc"}}),
+                h("span",{style:{fontSize:10,color:"#94a3b8",minWidth:12}},isUnit?"×":"g"),
+                h("button",{onClick:()=>addFood(f),style:{...btn("#0f172a","white"),padding:"6px 10px",fontSize:13,borderRadius:8}},"+")
+              )
+            );
+          })
+        )
+      ),
+
+      // Manual
+      h("div",{style:card},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showM?10:0}},
+          h("div",{style:stt},"Manual / AI Entry"),
+          h("button",{style:btn("#f1f5f9","#475569"),onClick:()=>setShowM(!showM)},showM?"Cancel":"+ Add")
+        ),
+        showM&&h("div",null,
+          h("input",{style:{...inp,marginBottom:8},placeholder:"Food name",value:manual.name,onChange:e=>setManual(p=>({...p,name:e.target.value}))}),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}},
+            ...["cal","protein","sugar","fat"].map(f=>h("input",{key:f,type:"number",style:inp,placeholder:f.charAt(0).toUpperCase()+f.slice(1)+(f==="cal"?" kcal":" g"),value:manual[f],onChange:e=>setManual(p=>({...p,[f]:e.target.value}))}))
+          ),
+          h("button",{onClick:addManual,style:{...btn("#0f172a","white"),width:"100%",padding:12}},"Add to today")
+        )
+      ),
+
+      // All meals (editable)
+      day.meals.length>0&&h("div",{style:card},
+        h("div",{style:stt},"Today's Meals (",day.meals.length,")"),
+        ...day.meals.map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u)}))
+      ),
+
+      // Supplements
+      h("div",{style:card},
+        h("div",{style:stt},"Supplements"),
+        // Omega-3
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:6}},"Omega-3 gummies"),
+          h("div",{style:{display:"flex",gap:6}},
+            ...[0,0.97,1.94,2.91].map(v=>h("button",{key:v,onClick:()=>upd("omega3",v),style:{...btn(day.omega3===v?"#8b5cf6":"#f1f5f9",day.omega3===v?"white":"#475569"),flex:1,padding:"7px 2px",fontSize:11}},v===0?"None":v===0.97?"2×":v===1.94?"4×✓":"6×"))
+          ),
+          h("div",{style:{fontSize:10,color:"#94a3b8",marginTop:4}},`${Math.round(o3*100)/100}g / 1.5g`)
+        ),
+        // L-Theanine
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:6}},"L-Theanine"),
+          h("div",{style:{display:"flex",gap:6}},
+            ...[0,200,400].map(v=>h("button",{key:v,onClick:()=>upd("ltheanine",v),style:{...btn(day.ltheanine===v?"#06b6d4":"#f1f5f9",day.ltheanine===v?"white":"#475569"),flex:1,padding:"7px 4px",fontSize:11}},v===0?"None":v===200?"200mg":"400mg✓"))
+          ),
+          h("div",{style:{fontSize:10,color:"#94a3b8",marginTop:4}},`${lt}mg / 400mg`,lt===200?" · Take 200mg before bed":lt>=400?" · Target met ✅":"")
+        ),
+        // Creatine
+        h("div",null,
+          h("div",{style:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:6}},"Creatine (target: 5000mg)"),
+          h("div",{style:{display:"flex",gap:6,marginBottom:6}},
+            ...[0,500,1000,2500,5000].map(v=>h("button",{key:v,onClick:()=>upd("creatine",v),style:{...btn(day.creatine===v?"#f97316":"#f1f5f9",day.creatine===v?"white":"#475569"),flex:1,padding:"6px 2px",fontSize:10}},v===0?"0":v===500?"500mg":v===1000?"1g":v===2500?"2.5g":"5g✓"))
+          ),
+          h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+            h("div",{style:{fontSize:10,color:"#475569",flexShrink:0}},"Or type:"),
+            h("input",{type:"number",min:0,max:10000,step:500,value:cr||"",placeholder:"mg",onChange:e=>upd("creatine",+e.target.value),style:{...inp,width:100,padding:"7px 10px"}}),
+            h("span",{style:{fontSize:10,color:"#94a3b8"}},"mg")
+          ),
+          h("div",{style:{fontSize:10,color:"#94a3b8",marginTop:4}},`${cr}mg / 5000mg`,cr>=5000?" · Target met ✅":cr>0?` · ${5000-cr}mg remaining`:"")
+        )
+      ),
+
+      // Summary
+      h("div",{style:card},
+        h("div",{style:stt},"Summary"),
+        ...[{label:"Calories",val:tot.cal,max:T.cal,color:"#3b82f6",unit:" kcal"},{label:"Protein",val:tot.protein,max:T.protein,color:"#10b981",unit:"g"},{label:"Sugar",val:tot.sugar,max:T.sugar,color:sc,unit:"g"},{label:"Fat",val:tot.fat,max:100,color:"#f59e0b",unit:"g"}].map(b=>h(Bar,{key:b.label,...b})),
+        h("div",{style:{padding:"9px 11px",borderRadius:9,background:"#f8fafc",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}},
+          h("div",null,h("div",{style:{fontSize:10,color:"#94a3b8"}},"Remaining cal"),h("div",{style:{fontSize:15,fontWeight:700}},Math.max(0,T.cal-tot.cal)," kcal")),
+          h("div",null,h("div",{style:{fontSize:10,color:"#94a3b8"}},"Remaining protein"),h("div",{style:{fontSize:15,fontWeight:700}},Math.max(0,T.protein-tot.protein),"g"))
+        )
+      )
+    ),
+
+    // ══ TRAINING ══════════════════════════════════
+    tab==="train"&&h("div",null,
+      h("div",{style:card},
+        h("div",{style:stt},"Session Type"),
+        h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}},
+          ...["upper","lower","custom"].map(t=>h("button",{key:t,onClick:()=>switchT(t),style:{...btn(day.trainingType===t?"#0f172a":"#f1f5f9",day.trainingType===t?"white":"#475569"),flex:1,padding:"10px 8px",minWidth:80}},t==="upper"?"Upper Body":t==="lower"?"Lower Body":"Custom"))
+        ),
+        h("div",{style:{display:"flex",alignItems:"center",gap:8,paddingTop:8}},
+          h("div",{style:{flex:1,height:5,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}},h("div",{style:{height:"100%",width:(done/Math.max(1,exs.length)*100)+"%",background:"#10b981",borderRadius:3}})),
+          h("span",{style:{fontSize:11,fontWeight:700}},done,"/",exs.length," done")
+        )
+      ),
+
+      // Science note for upper/lower
+      (day.trainingType==="upper"||day.trainingType==="lower")&&h("div",{style:{...card,background:"#eff6ff",border:"none"}},
+        h("div",{style:{fontSize:11,color:"#2563eb",fontWeight:600,marginBottom:2}},"📚 Program basis"),
+        h("div",{style:{fontSize:10,color:"#3b82f6",lineHeight:1.5}},"Sets/reps optimised per Schoenfeld (2017) meta-analysis: 3–5 sets × 6–15 reps for hypertrophy. Face pulls at 20 reps for rotator cuff health. Comments from previous sessions are reflected in exercise targets.")
+      ),
+
+      ...exs.map((ex,i)=>h(ExRow,{key:i,ex,idx:i,onUpdate:(k,v)=>updEx(i,k,v),onRemove:()=>removeEx(i)})),
+
+      // Add exercise
+      h("div",{style:{...card,border:"1.5px dashed #e2e8f0",background:"#fafafa"}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showCEx?12:0}},
+          h("div",{style:{fontSize:12,fontWeight:600,color:"#64748b"}},"Add exercise"),
+          h("button",{onClick:()=>setShowCEx(!showCEx),style:{...btn("#0f172a","white"),padding:"7px 14px"}},showCEx?"Cancel":"+")
+        ),
+        showCEx&&h("div",null,
+          h("input",{style:{...inp,marginBottom:8},placeholder:"Exercise name",value:cex.name,onChange:e=>setCex(p=>({...p,name:e.target.value}))}),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+            h("div",null,h("div",{style:{fontSize:10,color:"#94a3b8",fontWeight:600,marginBottom:3}},"Tag"),h("select",{value:cex.tag,onChange:e=>setCex(p=>({...p,tag:e.target.value})),style:{...inp,padding:"8px 10px"}},
+              ...Object.keys(TC).map(t=>h("option",{key:t,value:t},t))
+            )),
+            h("div",null,h("div",{style:{fontSize:10,color:"#94a3b8",fontWeight:600,marginBottom:3}},"Unit"),h("input",{style:inp,placeholder:"kg / BW",value:cex.unit,onChange:e=>setCex(p=>({...p,unit:e.target.value}))}))
+          ),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}},
+            ...[{l:"Sets",f:"sets"},{l:"Reps",f:"reps"},{l:"Weight",f:"weight"}].map(c=>h("div",{key:c.f},h("div",{style:{fontSize:10,color:"#94a3b8",fontWeight:600,marginBottom:3}},c.l),h("input",{type:"number",value:cex[c.f],onChange:e=>setCex(p=>({...p,[c.f]:e.target.value})),style:{...inp,padding:"8px 10px"}})))
+          ),
+          h("textarea",{rows:2,placeholder:"Note / goal for this exercise (optional)",value:cex.note,onChange:e=>setCex(p=>({...p,note:e.target.value})),style:{...inp,fontSize:12,marginBottom:8}}),
+          h("button",{onClick:addCEx,style:{...btn("#10b981","white"),width:"100%",padding:11}},"Add to session")
+        )
+      )
+    ),
+
+    // ══ REBOOT ════════════════════════════════════
+    tab==="reboot"&&h("div",null,
+      h("div",{style:{...card,background:"#0f172a",color:"white"}},
+        h("div",{style:{textAlign:"center",padding:"8px 0 14px"}},
+          h("div",{style:{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:0.8,textTransform:"uppercase",marginBottom:8}},"Reboot Streak"),
+          h("div",{style:{fontSize:72,fontWeight:800,color:"#38bdf8",lineHeight:1}},rebootStreak),
+          h("div",{style:{fontSize:13,color:"#64748b",marginTop:4}},rebootStreak===1?"day":"days"),
+          rebootStart&&h("div",{style:{fontSize:10,color:"#64748b",marginTop:4}},"Started: ",rebootStart)
+        ),
+        h("div",{style:{display:"flex",gap:8,marginBottom:12}},
+          h("button",{onClick:()=>setRebootStreak(p=>p+1),style:{...btn("#38bdf8","#0f172a"),flex:1,padding:10}},"+ Day"),
+          h("button",{onClick:()=>setRebootStreak(p=>Math.max(0,p-1)),style:{...btn("rgba(255,255,255,0.08)","#94a3b8"),flex:1,padding:10}},"− Day"),
+          h("button",{onClick:()=>{setRebootStreak(0);setRebootStart(todayStr());},style:{...btn("#ef4444","white"),padding:"10px 16px"}},"Reset")
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:10,color:"#94a3b8",marginBottom:4}},"Set manually:"),
+          h("div",{style:{display:"flex",gap:6}},
+            h("input",{type:"number",min:0,max:365,placeholder:"0",id:"strk",style:{...inp,background:"rgba(255,255,255,0.08)",color:"white",border:"1px solid rgba(255,255,255,0.1)",flex:1}}),
+            h("button",{onClick:()=>{const v=+document.getElementById("strk").value;if(!isNaN(v)&&v>=0){setRebootStreak(v);const d=new Date();d.setDate(d.getDate()-v);setRebootStart(fmtKey(d));}},style:{...btn("#38bdf8","#0f172a"),padding:"9px 14px"}},"Set")
+          )
+        )
+      ),
+      h("div",{style:card},
+        h("div",{style:stt},"Progress to Day 90"),
+        h("div",{style:{height:8,borderRadius:4,background:"#f1f5f9",overflow:"hidden",marginBottom:6}},
+          h("div",{style:{height:"100%",width:Math.min(100,Math.round(rebootStreak/90*100))+"%",background:"linear-gradient(90deg,#3b82f6,#8b5cf6)",borderRadius:4,transition:"width 0.5s"}})
+        ),
+        h("div",{style:{fontSize:11,color:"#64748b",textAlign:"right"}},Math.round(rebootStreak/90*100),"% — Day ",rebootStreak," of 90")
+      ),
+      h("div",{style:card},
+        h("div",{style:stt},"Milestones"),
+        ...MILESTONES.map((m,i)=>{
+          const reached=rebootStreak>=m.days;
+          return h("div",{key:m.key,style:{display:"flex",gap:12,padding:"10px 0",borderBottom:"1px solid #f8fafc",opacity:reached?1:0.45}},
+            h("div",{style:{width:26,height:26,borderRadius:6,background:reached?"#10b981":"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}},
+              reached?h("span",{style:{color:"white",fontSize:13}},"✓"):h("span",{style:{color:"#94a3b8",fontSize:9,fontWeight:700}},m.days)
+            ),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:11,fontWeight:700,color:reached?"#0f172a":"#94a3b8",textTransform:"uppercase",letterSpacing:0.4}},m.label),
+              h("div",{style:{fontSize:12,color:reached?"#475569":"#94a3b8",marginTop:1}},m.desc)
+            )
+          );
+        })
+      )
+    ),
+
+    // ══ LOG ═══════════════════════════════════════
+    tab==="log"&&h("div",null,
+      h("div",{style:card},
+        h("div",{style:stt},"Past 14 Days"),
+        ...Array.from({length:14},(_,i)=>{
+          const d=new Date();d.setDate(d.getDate()-i);
+          const dk=fmtKey(d);
+          const data=loadDay(dk);
+          const label=i===0?"Today":i===1?"Yesterday":d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"});
+          const mt=data?.meals?.reduce((a,m)=>({cal:a.cal+(m.cal||0),protein:a.protein+(m.protein||0),sugar:a.sugar+(m.sugar||0)}),{cal:0,protein:0,sugar:0});
+          const lg=data?calcLustig(data.meals||[],mt?.sugar||0):null;
+          return h("div",{key:dk,onClick:()=>{setViewDate(dk);setTab("dash");},style:{padding:"9px 0",borderBottom:"1px solid #f8fafc",cursor:"pointer"}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              h("div",null,
+                h("div",{style:{fontSize:12,fontWeight:700,color:viewDate===dk?"#3b82f6":"#1e293b"}},label,data?.finalized&&h("span",{style:{fontSize:9,color:"#10b981",marginLeft:6}},"✓")),
+                data?h("div",{style:{fontSize:10,color:"#94a3b8"}},Math.round(mt.cal),"kcal · ",Math.round(mt.protein),"g P · ",Math.round(mt.sugar),"g S",data.weight?" · "+data.weight+"kg":"",data.sleepScore?" · Sleep "+data.sleepScore:"")
+                :h("div",{style:{fontSize:10,color:"#cbd5e1"}},"No data")
+              ),
+              data&&h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+                lg&&h("span",{style:{fontSize:11,fontWeight:700,color:lg.color}},lg.score),
+                h("span",{style:pill(mt.sugar<=50?"#f0fdf4":"#fef2f2",mt.sugar<=50?"#16a34a":"#ef4444")},mt.sugar<=50?"✓":"⚠")
+              )
+            )
+          );
+        })
+      )
+    )
+  ),
+
+  // Nav
+  h("nav",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"white",borderTop:"1px solid #f1f5f9",display:"flex",padding:"7px 0 10px"}},
+    ...TABS.map(t=>h("div",{key:t.id,onClick:()=>setTab(t.id),style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer",color:tab===t.id?"#0f172a":"#94a3b8"}},
+      h("span",{style:{fontSize:t.id==="reboot"?16:17}},t.icon),
+      h("span",{style:{fontSize:9,fontWeight:600}},t.label)
+    ))
+  ),
+
+  showFinish&&h(FinishModal,{day,exs,date:viewDate,rebootStreak,onClose:()=>setShowFinish(false),onSave:()=>{}})
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
+</script>
+</body>
+</html>
