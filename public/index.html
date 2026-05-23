@@ -8,7 +8,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,sans-serif;background:#f8fafc;-webkit-text-size-adjust:100%}
-input,select,textarea,button{font-family:inherit}
+input,select,textarea,button{font-family:inherit
 input[type=number]::-webkit-inner-spin-button{opacity:1}
 input[type=file]{display:none}
 textarea{resize:none}
@@ -309,7 +309,7 @@ Lustig Score: ${lustig.score}/10 (${lustig.label}) | Reboot streak: ${rebootStre
 Meals:
 ${mealLines}
 Training (${exs.filter(e=>e.done).length}/${exs.length} done):
-${exLines}`;
+${exLines}${day.notes?"\nNotes:\n  "+day.notes:""}`;
 
   const doCopy=()=>{
     const done=()=>{setCopied(true);saveDay(date,{...day,exs,finalized:true});onSave({tot,o3,lustig});setTimeout(()=>setCopied(false),5000);};
@@ -382,6 +382,20 @@ function App(){
   useEffect(()=>{saveDay(viewDate,{...day,exs});},[day,exs]);
   useEffect(()=>{saveG("rebootStreak",rebootStreak);},[rebootStreak]);
   useEffect(()=>{saveG("rebootStart",rebootStart);},[rebootStart]);
+
+// Register reload handler for Supabase sync
+useEffect(()=>{
+  window.__athleteReload=()=>{
+    const d=loadDay(viewDate)||emptyDay();
+    setDay(d);
+    setExs(d.exs&&d.exs.length?d.exs:EU.map(e=>({...e,done:false})));
+    const rs=loadG("rebootStreak",0);
+    const rst=loadG("rebootStart","");
+    setRebootStreak(rs);
+    setRebootStart(rst);
+  };
+  return ()=>{window.__athleteReload=null;};
+},[viewDate]);
 
   const upd=(k,v)=>setDay(p=>({...p,[k]:v}));
   const updEx=(i,k,v)=>setExs(p=>p.map((e,j)=>j===i?{...e,[k]:v}:e));
@@ -543,6 +557,17 @@ function App(){
           h("span",{style:{fontSize:12,fontWeight:700}},done,"/",exs.length)
         ),
         h("div",{style:{fontSize:10,color:"#94a3b8"}},day.trainingType," session — tap Training to manage")
+      ),
+
+      h("div",{style:card},
+        h("div",{style:stt},"Notes"),
+        h("textarea",{
+          rows:3,
+          placeholder:"How did you feel today? Any wins, struggles, or observations...",
+          value:day.notes||"",
+          onChange:e=>upd("notes",e.target.value),
+          style:{...inp,lineHeight:1.6,padding:"9px 11px",fontSize:12,resize:"vertical"}
+        })
       ),
 
       h("div",{style:{display:"flex",flexDirection:"column",gap:8,marginTop:4}},
@@ -805,11 +830,43 @@ function App(){
     ))
   ),
 
-  showFinish&&h(FinishModal,{day,exs,date:viewDate,rebootStreak,onClose:()=>setShowFinish(false),onSave:()=>{}})
+  showFinish&&h(FinishModal,{day,exs,date:viewDate,rebootStreak,onClose:()=>setShowFinish(false),onSave:({tot,o3,lustig})=>{saveDay(viewDate,{...day,exs,finalized:true});}})
   );
 }
 
 ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
+// ── Supabase Sync
+(function(){
+  var S='https://vgurpottnlcixzjmatlz.supabase.co',K='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZndXJwb3R0bmxjaXh6am1hdGx6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDc2MTMsImV4cCI6MjA5NDc4MzYxM30.60bgWxj79Md4eNZYrfnYEQgUNjQr4SJEK27QcTsoRr0',U='default';
+  function hdr(){return{'apikey':K,'Authorization':'Bearer '+K,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'};}
+  var _sv=window.sv;
+  window.sv=function(k,v){
+    if(_sv)_sv.call(this,k,v);
+    var tbl=k.startsWith('d4_')?'athlete_day_data':'athlete_globals';
+    var body=k.startsWith('d4_')
+      ?{user_id:U,date_key:k.replace('d4_',''),data:v,updated_at:new Date().toISOString()}
+      :{user_id:U,key:k.replace('g4_',''),value:v,updated_at:new Date().toISOString()};
+    fetch(S+'/rest/v1/'+tbl,{method:'POST',headers:hdr(),body:JSON.stringify(body)}).catch(function(){});
+  };
+  window.addEventListener('load',function(){
+    var loaded=0;
+    function tryReload(){if(++loaded>=2&&window.__athleteReload)window.__athleteReload();}
+    fetch(S+'/rest/v1/athlete_day_data?user_id=eq.'+U+'&select=date_key,data',{headers:hdr()})
+      .then(function(r){return r.json();})
+      .then(function(rows){
+        if(!Array.isArray(rows))return;
+        rows.forEach(function(r){if(r.date_key)try{localStorage.setItem('d4_'+r.date_key,JSON.stringify(r.data));}catch(e){}});
+        tryReload();
+      }).catch(function(){tryReload();});
+    fetch(S+'/rest/v1/athlete_globals?user_id=eq.'+U+'&select=key,value',{headers:hdr()})
+      .then(function(r){return r.json();})
+      .then(function(rows){
+        if(!Array.isArray(rows))return;
+        rows.forEach(function(r){if(r.key)try{localStorage.setItem('g4_'+r.key,JSON.stringify(r.value));}catch(e){}});
+        tryReload();
+      }).catch(function(){tryReload();});
+  });
+})();
 </script>
 </body>
 </html>
