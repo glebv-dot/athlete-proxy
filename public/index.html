@@ -84,6 +84,34 @@ const EL=[
 
 const TC={pull:"#2563eb",push:"#f59e0b",core:"#ef4444",legs:"#8b5cf6",post:"#10b981",hips:"#ec4899",rear:"#6366f1"};
 
+// ─────────────────────────────────────────────
+// PROGRAM v3 DATA
+// ─────────────────────────────────────────────
+const PROGRAM_A=[
+  {name:"Barbell Squat",    tag:"legs",sets:5,reps:5,weight:80, unit:"kg",   note:"Add 2.5kg per session when 5×5 clean. Target: 100kg"},
+  {name:"Barbell Bench",    tag:"push",sets:4,reps:5,weight:60, unit:"kg",   note:"Add 2.5kg per session. Target: 100kg. Switch from DB now"},
+  {name:"Pull-ups",         tag:"pull",sets:5,reps:3,weight:0,  unit:"BW",   note:"5×3 at BW. Add 1 rep per set each session until 5×5, then add weight"},
+  {name:"Romanian Deadlift",tag:"post",sets:3,reps:8,weight:70, unit:"kg",   note:"3s slow eccentric every rep. Accessory to main DL"},
+  {name:"Face Pulls",       tag:"rear",sets:3,reps:20,weight:30,unit:"kg",   note:"🔑 Non-negotiable — protects shoulder for heavy bench"},
+  {name:"Dead Hangs",       tag:"core",sets:3,reps:1, weight:0, unit:"45-60s",note:"Extend to 60s holds. Spine decompression + pull-up grip"},
+];
+
+const PROGRAM_B=[
+  {name:"Barbell Deadlift", tag:"post",sets:3,reps:5,weight:90, unit:"kg",   note:"Add 5kg per session → switch to 2.5kg when stalls. Target: 120kg"},
+  {name:"Barbell Bench",    tag:"push",sets:4,reps:5,weight:60, unit:"kg",   note:"Same as Day A — bench 3× per week is fastest path to 100kg"},
+  {name:"Pull-ups",         tag:"pull",sets:5,reps:3,weight:0,  unit:"BW",   note:"Same GTG protocol as Day A. Consistent frequency is key"},
+  {name:"Barbell Row",      tag:"pull",sets:4,reps:6,weight:60, unit:"kg",   note:"Horizontal pull balance. Add 2.5kg when 4×6 clean"},
+  {name:"Overhead Press",   tag:"push",sets:3,reps:8,weight:40, unit:"kg",   note:"Shoulder strength. Add 2.5kg when 3×8 clean"},
+  {name:"Jefferson Curl",   tag:"post",sets:3,reps:8,weight:15, unit:"kg",   note:"🔑 Lower back health — non-negotiable every B session"},
+];
+
+const STRENGTH_GOALS=[
+  {name:"Bench Press", current:60, target:100, color:"#f59e0b", unit:"kg"},
+  {name:"Squat",       current:80, target:100, color:"#8b5cf6", unit:"kg"},
+  {name:"Deadlift",    current:90, target:120, color:"#10b981", unit:"kg"},
+  {name:"Pull-ups",    current:5,  target:10,  color:"#2563eb", unit:"reps"},
+];
+
 const MILESTONES=[
   {key:"10min",label:"10 MIN",    desc:"Dopamine levels drop and prolactin increases",days:0},
   {key:"day1", label:"DAY 1",    desc:"High motivation – lingering brain chemicals",days:1},
@@ -113,7 +141,7 @@ const saveDay=(date,data)=>sv("d4_"+fmtKey(date),data);
 const loadDay=(date)=>ld("d4_"+fmtKey(date));
 const saveG=(k,v)=>sv("g4_"+k,v);
 const loadG=(k,def)=>{const v=ld("g4_"+k);return v!==null?v:def;};
-const emptyDay=()=>({weight:"",sleepScore:"",bedtime:"",coffees:0,omega3:0,ltheanine:0,creatine:0,meals:[],exs:[],trainingType:"upper",notes:""});
+const emptyDay=()=>({weight:"",sleepScore:"",bedtime:"",coffees:0,omega3:0,ltheanine:0,creatine:0,magnesium:0,electrolytes:0,meals:[],exs:[],trainingType:"upper",notes:""});
 
 // ─────────────────────────────────────────────
 // LUSTIG SCORE
@@ -128,57 +156,24 @@ function calcLustig(meals,sugar){
 }
 
 // ─────────────────────────────────────────────
-// AI FUNCTIONS — real Claude calls via proxy
+// AI FUNCTIONS
 // ─────────────────────────────────────────────
 async function estimateMacros(name){
   try{
-    const res=await fetch(PROXY_URL,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:"claude-haiku-4-5-20251001",
-        max_tokens:300,
-        messages:[{
-          role:"user",
-          content:`Estimate macros for: "${name}". Reply ONLY with a JSON object, no markdown, no explanation. Format: {"cal":300,"protein":25,"sugar":5,"fat":10}`
-        }]
-      })
-    });
+    const res=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:300,messages:[{role:"user",content:`Estimate macros for: "${name}". Reply ONLY with a JSON object, no markdown, no explanation. Format: {"cal":300,"protein":25,"sugar":5,"fat":10}`}]})});
     const data=await res.json();
     const text=data.content?.[0]?.text||"{}";
-    const clean=text.replace(/```json|```/g,"").trim();
-    return JSON.parse(clean);
-  }catch(e){
-    console.error("estimateMacros error:",e);
-    return null;
-  }
+    return JSON.parse(text.replace(/```json|```/g,"").trim());
+  }catch(e){console.error("estimateMacros error:",e);return null;}
 }
 
 async function analyzePhoto(b64,mime){
   try{
-    const res=await fetch(PROXY_URL,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:"claude-haiku-4-5-20251001",
-        max_tokens:1000,
-        messages:[{
-          role:"user",
-          content:[
-            {type:"image",source:{type:"base64",media_type:mime,data:b64}},
-            {type:"text",text:`Identify all food items in this photo and estimate macros per item. Reply ONLY with a JSON array, no markdown, no explanation. Format: [{"name":"Food Name","cal":300,"protein":25,"sugar":5,"fat":10}]. If no food detected, return [].`}
-          ]
-        }]
-      })
-    });
+    const res=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1000,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:`Identify all food items in this photo and estimate macros per item. Reply ONLY with a JSON array, no markdown, no explanation. Format: [{"name":"Food Name","cal":300,"protein":25,"sugar":5,"fat":10}]. If no food detected, return [].`}]}]})});
     const data=await res.json();
     const text=data.content?.[0]?.text||"[]";
-    const clean=text.replace(/```json|```/g,"").trim();
-    return JSON.parse(clean);
-  }catch(e){
-    console.error("analyzePhoto error:",e);
-    return [];
-  }
+    return JSON.parse(text.replace(/```json|```/g,"").trim());
+  }catch(e){console.error("analyzePhoto error:",e);return [];}
 }
 
 // ─────────────────────────────────────────────
@@ -218,7 +213,7 @@ function Bar({label,val,max,color,unit}){
 }
 
 // ─────────────────────────────────────────────
-// FOOD ENTRY ROW (with edit/delete)
+// FOOD ENTRY ROW
 // ─────────────────────────────────────────────
 function FoodRow({meal,onDelete,onEdit}){
   const [editing,setEditing]=useState(false);
@@ -247,7 +242,7 @@ function FoodRow({meal,onDelete,onEdit}){
 }
 
 // ─────────────────────────────────────────────
-// EXERCISE ROW (with comment)
+// EXERCISE ROW
 // ─────────────────────────────────────────────
 function ExRow({ex,idx,onUpdate,onRemove}){
   const [showNote,setShowNote]=useState(false);
@@ -304,7 +299,7 @@ function FinishModal({day,exs,date,rebootStreak,onClose,onSave}){
   const summary=`DAY FINISHED — ${date}
 Weight: ${day.weight||"—"}kg | Sleep: ${day.sleepScore||"—"} | Bedtime: ${day.bedtime||"—"}
 Calories: ${Math.round(tot.cal)}kcal | Protein: ${Math.round(tot.protein)}g | Sugar: ${Math.round(tot.sugar)}g
-Omega-3: ${o3}g | Coffees: ${day.coffees} | L-Theanine: ${day.ltheanine}mg | Creatine: ${day.creatine}mg
+Omega-3: ${o3}g | Coffees: ${day.coffees} | L-Theanine: ${day.ltheanine}mg | Creatine: ${day.creatine}mg | Magnesium: ${day.magnesium||0}mg | Electrolytes: ${day.electrolytes?"yes":"no"}
 Lustig Score: ${lustig.score}/10 (${lustig.label}) | Reboot streak: ${rebootStreak} days
 Meals:
 ${mealLines}
@@ -346,7 +341,6 @@ ${exLines}${day.notes?"\nNotes:\n  "+day.notes:""}`;
     )
   );
 }
-
 // ─────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────
@@ -360,6 +354,9 @@ function App(){
 
   const [rebootStreak,setRebootStreak]=useState(()=>loadG("rebootStreak",0));
   const [rebootStart,setRebootStart]=useState(()=>loadG("rebootStart",""));
+
+  const [progDay,setProgDay]=useState(()=>loadG("progDay","A"));
+  const [progWeights,setProgWeights]=useState(()=>loadG("progWeights",{}));
 
   const [fsearch,setFsearch]=useState("");
   const [qtys,setQtys]=useState({});
@@ -382,20 +379,21 @@ function App(){
   useEffect(()=>{saveDay(viewDate,{...day,exs});},[day,exs]);
   useEffect(()=>{saveG("rebootStreak",rebootStreak);},[rebootStreak]);
   useEffect(()=>{saveG("rebootStart",rebootStart);},[rebootStart]);
+  useEffect(()=>{saveG("progDay",progDay);},[progDay]);
+  useEffect(()=>{saveG("progWeights",progWeights);},[progWeights]);
 
-// Register reload handler for Supabase sync
-useEffect(()=>{
-  window.__athleteReload=()=>{
-    const d=loadDay(viewDate)||emptyDay();
-    setDay(d);
-    setExs(d.exs&&d.exs.length?d.exs:EU.map(e=>({...e,done:false})));
-    const rs=loadG("rebootStreak",0);
-    const rst=loadG("rebootStart","");
-    setRebootStreak(rs);
-    setRebootStart(rst);
-  };
-  return ()=>{window.__athleteReload=null;};
-},[viewDate]);
+  useEffect(()=>{
+    window.__athleteReload=()=>{
+      const d=loadDay(viewDate)||emptyDay();
+      setDay(d);
+      setExs(d.exs&&d.exs.length?d.exs:EU.map(e=>({...e,done:false})));
+      setRebootStreak(loadG("rebootStreak",0));
+      setRebootStart(loadG("rebootStart",""));
+      setProgDay(loadG("progDay","A"));
+      setProgWeights(loadG("progWeights",{}));
+    };
+    return ()=>{window.__athleteReload=null;};
+  },[viewDate]);
 
   const upd=(k,v)=>setDay(p=>({...p,[k]:v}));
   const updEx=(i,k,v)=>setExs(p=>p.map((e,j)=>j===i?{...e,[k]:v}:e));
@@ -413,7 +411,8 @@ useEffect(()=>{
   const o3=tot.omega3+day.omega3;
   const lt=day.ltheanine;
   const cr=day.creatine;
-  const T={cal:2800,protein:170,sugar:35,omega3:1.5,lt:400,creatine:5000};
+  const mg=day.magnesium||0;
+  const T={cal:2800,protein:170,sugar:35,omega3:1.5,lt:400,creatine:5000,magnesium:400};
   const sc=tot.sugar<=25?"#10b981":tot.sugar<=35?"#f59e0b":"#ef4444";
   const done=exs.filter(e=>e.done).length;
   const lustig=calcLustig(day.meals,tot.sugar);
@@ -429,8 +428,7 @@ useEffect(()=>{
 
   const addManual=()=>{
     if(!manual.name)return;
-    const macros={cal:+manual.cal||0,protein:+manual.protein||0,sugar:+manual.sugar||0,fat:+manual.fat||0,lustig:0};
-    setDay(p=>({...p,meals:[...p.meals,{name:manual.name,...macros,id:Date.now()}]}));
+    setDay(p=>({...p,meals:[...p.meals,{name:manual.name,cal:+manual.cal||0,protein:+manual.protein||0,sugar:+manual.sugar||0,fat:+manual.fat||0,lustig:0,id:Date.now()}]}));
     setManual({name:"",cal:"",protein:"",sugar:"",fat:"",_loading:false});
     setShowM(false);
   };
@@ -466,11 +464,21 @@ useEffect(()=>{
   const ff=FOODS.filter(f=>f.name.toLowerCase().includes(fsearch.toLowerCase())).sort((a,b)=>a.rank-b.rank);
   const last7=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-i);return fmtKey(d);});
 
-  const TABS=[{id:"dash",icon:"◉",label:"Today"},{id:"food",icon:"⊕",label:"Food"},{id:"train",icon:"◈",label:"Train"},{id:"reboot",icon:"🔥",label:"Reboot"},{id:"log",icon:"≡",label:"Log"}];
+  const TABS=[
+    {id:"dash",  icon:"◉", label:"Today"},
+    {id:"food",  icon:"⊕", label:"Food"},
+    {id:"train", icon:"◈", label:"Train"},
+    {id:"prog",  icon:"🎯", label:"Program"},
+    {id:"reboot",icon:"🔥", label:"Reboot"},
+    {id:"log",   icon:"≡", label:"Log"},
+  ];
+
+  const curProg=progDay==="A"?PROGRAM_A:PROGRAM_B;
+  const updProgWeight=(name,val)=>setProgWeights(p=>({...p,[name]:val}));
+  const getProgWeight=(ex)=>progWeights[ex.name]!==undefined?progWeights[ex.name]:ex.weight;
 
   return h("div",{style:{fontFamily:"'DM Sans',system-ui,sans-serif",background:"#f8fafc",minHeight:"100vh",maxWidth:480,margin:"0 auto",paddingBottom:80}},
 
-    // ── HEADER
     h("div",{style:{background:"#0f172a",padding:"18px 16px 14px",color:"white"}},
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
         h("div",null,
@@ -490,7 +498,7 @@ useEffect(()=>{
             h("div",{style:{fontSize:14,fontWeight:700,color:viewDate===d?"#0f172a":"white"}},dd.getDate())
           );
         }),
-        h("div",{style:{flexShrink:0,marginLeft:4,position:"relative"}},
+        h("div",{style:{flexShrink:0,marginLeft:4}},
           h("input",{type:"date",value:viewDate,max:todayStr(),onChange:e=>{if(e.target.value)setViewDate(e.target.value);},style:{padding:"5px 8px",borderRadius:8,border:"none",background:"rgba(255,255,255,0.12)",color:"white",fontSize:11,fontWeight:600,outline:"none",cursor:"pointer",WebkitAppearance:"none",colorScheme:"dark"}})
         )
       ),
@@ -501,7 +509,6 @@ useEffect(()=>{
 
     h("div",{style:{padding:"14px 14px 0"}},
 
-    // ══ DASHBOARD
     tab==="dash"&&h("div",null,
       h("div",{style:card},
         h("div",{style:stt},"Daily Targets"),
@@ -516,12 +523,12 @@ useEffect(()=>{
         h(Bar,{label:"Sugar",val:tot.sugar,max:T.sugar,color:sc,unit:"g"}),
         h(Bar,{label:"L-Theanine",val:lt,max:T.lt,color:"#06b6d4",unit:"mg"}),
         h(Bar,{label:"Creatine",val:cr,max:T.creatine,color:"#f97316",unit:"mg"}),
+        h(Bar,{label:"Magnesium",val:mg,max:T.magnesium,color:"#a855f7",unit:"mg"}),
         h("div",{style:{marginTop:10,padding:"9px 12px",borderRadius:10,background:"#f8fafc",display:"flex",alignItems:"center",gap:10}},
           h("div",{style:{width:36,height:36,borderRadius:"50%",background:lustig.color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:lustig.color}},lustig.score),
           h("div",null,h("div",{style:{fontSize:12,fontWeight:700}},"Lustig Score — ",lustig.label),h("div",{style:{fontSize:10,color:"#64748b"}},"Anti-inflammation diet rating"))
         )
       ),
-
       h("div",{style:card},
         h("div",{style:stt},"Morning Check-In"),
         h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
@@ -543,13 +550,11 @@ useEffect(()=>{
           h("div",null,h("div",{style:{fontSize:12,fontWeight:700}},"Sleep: ",day.sleepScore),h("div",{style:{fontSize:10,color:"#64748b"}},+day.sleepScore>=82?"Great!":+day.sleepScore>=75?"Fair — aim for 23:00":"Poor — sleep early tonight"))
         )
       ),
-
       h("div",{style:card},
         h("div",{style:stt},"Meals (",day.meals.length,")"),
         day.meals.length===0&&h("div",{style:{color:"#94a3b8",fontSize:12,textAlign:"center",padding:"8px 0"}},"No meals yet — tap Food tab"),
         ...day.meals.slice(-4).map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u)}))
       ),
-
       h("div",{style:card},
         h("div",{style:stt},"Training"),
         h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:4}},
@@ -558,36 +563,21 @@ useEffect(()=>{
         ),
         h("div",{style:{fontSize:10,color:"#94a3b8"}},day.trainingType," session — tap Training to manage")
       ),
-
       h("div",{style:card},
         h("div",{style:stt},"Notes"),
-        h("textarea",{
-          rows:3,
-          placeholder:"How did you feel today? Any wins, struggles, or observations...",
-          value:day.notes||"",
-          onChange:e=>upd("notes",e.target.value),
-          style:{...inp,lineHeight:1.6,padding:"9px 11px",fontSize:12,resize:"vertical"}
-        })
+        h("textarea",{rows:3,placeholder:"How did you feel today? Any wins, struggles, or observations...",value:day.notes||"",onChange:e=>upd("notes",e.target.value),style:{...inp,lineHeight:1.6,padding:"9px 11px",fontSize:12,resize:"vertical"}})
       ),
-
       h("div",{style:{display:"flex",flexDirection:"column",gap:8,marginTop:4}},
         h("button",{onClick:handleSaveProgress,style:{...btn(saveFlash?"#10b981":"#f1f5f9",saveFlash?"white":"#475569"),width:"100%",padding:12,fontSize:13,borderRadius:12,transition:"all 0.3s"}},saveFlash?"✓ Saved!":"💾 Save Progress"),
         isToday&&h("button",{onClick:()=>setShowFinish(true),style:{...btn("#0f172a","white"),width:"100%",padding:14,fontSize:14,borderRadius:12}},"✓ Finish Day & Sync to Notion")
       )
     ),
 
-    // ══ FOOD
     tab==="food"&&h("div",null,
-
-      // Photo Log — UPDATED with real AI button
       h("div",{style:card},
         h("div",{style:stt},"📷 Photo Log"),
         h("input",{type:"file",accept:"image/*",capture:"environment",ref:fileRef,onChange:handlePhoto}),
-        h("button",{
-          onClick:()=>fileRef.current&&fileRef.current.click(),
-          disabled:photoLoading,
-          style:{...btn(photoLoading?"#94a3b8":"#0f172a","white"),width:"100%",padding:11,marginBottom:10,opacity:photoLoading?0.7:1}
-        },photoLoading?"🔍 AI is identifying your food...":"📷 Take / Upload Photo → AI Identify"),
+        h("button",{onClick:()=>fileRef.current&&fileRef.current.click(),disabled:photoLoading,style:{...btn(photoLoading?"#94a3b8":"#0f172a","white"),width:"100%",padding:11,marginBottom:10,opacity:photoLoading?0.7:1}},photoLoading?"🔍 AI is identifying your food...":"📷 Take / Upload Photo → AI Identify"),
         photoItems&&photoItems.length===0&&h("div",{style:{textAlign:"center",color:"#94a3b8",fontSize:12,padding:"6px 0"}},"No food detected — try a clearer photo"),
         photoItems&&photoItems.length>0&&h("div",null,
           h("div",{style:{fontSize:10,color:"#64748b",marginBottom:8,fontWeight:600}},`${photoItems.length} item${photoItems.length>1?"s":""} detected — tap Add to log`),
@@ -603,8 +593,6 @@ useEffect(()=>{
           ))
         )
       ),
-
-      // Library
       h("div",{style:card},
         h("div",{style:stt},"Food Library"),
         h("input",{style:{...inp,marginBottom:10},placeholder:"Search foods...",value:fsearch,onChange:e=>setFsearch(e.target.value)}),
@@ -625,46 +613,27 @@ useEffect(()=>{
           })
         )
       ),
-
-      // Manual / AI Entry — UPDATED with 🤖 AI lookup button
       h("div",{style:card},
         h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showM?10:0}},
           h("div",{style:stt},"Manual / AI Entry"),
           h("button",{style:btn("#f1f5f9","#475569"),onClick:()=>setShowM(!showM)},showM?"Cancel":"+ Add")
         ),
         showM&&h("div",null,
-          // Food name row with AI button
           h("div",{style:{display:"flex",gap:6,marginBottom:8}},
-            h("input",{
-              style:{...inp,flex:1},
-              placeholder:"Food name (e.g. 200g oatmeal with milk)",
-              value:manual.name,
-              onChange:e=>setManual(p=>({...p,name:e.target.value})),
-              onKeyDown:e=>e.key==="Enter"&&lookupMacros()
-            }),
-            h("button",{
-              onClick:lookupMacros,
-              disabled:manual._loading||!manual.name,
-              style:{...btn(manual._loading?"#94a3b8":"#3b82f6","white"),padding:"9px 12px",whiteSpace:"nowrap",flexShrink:0,opacity:(!manual.name||manual._loading)?0.6:1}
-            },manual._loading?"…":"🤖 AI")
+            h("input",{style:{...inp,flex:1},placeholder:"Food name (e.g. 200g oatmeal with milk)",value:manual.name,onChange:e=>setManual(p=>({...p,name:e.target.value})),onKeyDown:e=>e.key==="Enter"&&lookupMacros()}),
+            h("button",{onClick:lookupMacros,disabled:manual._loading||!manual.name,style:{...btn(manual._loading?"#94a3b8":"#3b82f6","white"),padding:"9px 12px",whiteSpace:"nowrap",flexShrink:0,opacity:(!manual.name||manual._loading)?0.6:1}},manual._loading?"…":"🤖 AI")
           ),
-          // Hint text
           h("div",{style:{fontSize:10,color:"#94a3b8",marginBottom:8,marginTop:-4}},"Type a food name and tap 🤖 AI to auto-fill macros"),
-          // Macro inputs
           h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}},
             ...["cal","protein","sugar","fat"].map(f=>h("input",{key:f,type:"number",style:inp,placeholder:f.charAt(0).toUpperCase()+f.slice(1)+(f==="cal"?" kcal":" g"),value:manual[f],onChange:e=>setManual(p=>({...p,[f]:e.target.value}))}))
           ),
           h("button",{onClick:addManual,style:{...btn("#0f172a","white"),width:"100%",padding:12}},"Add to today")
         )
       ),
-
-      // All meals (editable)
       day.meals.length>0&&h("div",{style:card},
         h("div",{style:stt},"Today's Meals (",day.meals.length,")"),
         ...day.meals.map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u)}))
       ),
-
-      // Supplements
       h("div",{style:card},
         h("div",{style:stt},"Supplements"),
         h("div",{style:{marginBottom:14}},
@@ -681,7 +650,7 @@ useEffect(()=>{
           ),
           h("div",{style:{fontSize:10,color:"#94a3b8",marginTop:4}},`${lt}mg / 400mg`,lt===200?" · Take 200mg before bed":lt>=400?" · Target met ✅":"")
         ),
-        h("div",null,
+        h("div",{style:{marginBottom:14}},
           h("div",{style:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:6}},"Creatine (target: 5000mg)"),
           h("div",{style:{display:"flex",gap:6,marginBottom:6}},
             ...[0,500,1000,2500,5000].map(v=>h("button",{key:v,onClick:()=>upd("creatine",v),style:{...btn(day.creatine===v?"#f97316":"#f1f5f9",day.creatine===v?"white":"#475569"),flex:1,padding:"6px 2px",fontSize:10}},v===0?"0":v===500?"500mg":v===1000?"1g":v===2500?"2.5g":"5g✓"))
@@ -692,10 +661,27 @@ useEffect(()=>{
             h("span",{style:{fontSize:10,color:"#94a3b8"}},"mg")
           ),
           h("div",{style:{fontSize:10,color:"#94a3b8",marginTop:4}},`${cr}mg / 5000mg`,cr>=5000?" · Target met ✅":cr>0?` · ${5000-cr}mg remaining`:"")
+        ),
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:6}},"Magnesium (target: 400mg)"),
+          h("div",{style:{display:"flex",gap:6,marginBottom:6}},
+            ...[0,200,400,600].map(v=>h("button",{key:v,onClick:()=>upd("magnesium",v),style:{...btn(day.magnesium===v?"#a855f7":"#f1f5f9",day.magnesium===v?"white":"#475569"),flex:1,padding:"7px 2px",fontSize:11}},v===0?"None":v===200?"200mg":v===400?"400mg✓":"600mg"))
+          ),
+          h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+            h("div",{style:{fontSize:10,color:"#475569",flexShrink:0}},"Or type:"),
+            h("input",{type:"number",min:0,max:1000,step:50,value:mg||"",placeholder:"mg",onChange:e=>upd("magnesium",+e.target.value),style:{...inp,width:100,padding:"7px 10px"}}),
+            h("span",{style:{fontSize:10,color:"#94a3b8"}},"mg")
+          ),
+          h("div",{style:{fontSize:10,color:"#94a3b8",marginTop:4}},`${mg}mg / 400mg`,mg>=400?" · Target met ✅":mg>0?` · ${400-mg}mg remaining`:"",mg>0?" · Helps muscle recovery + sleep":"")
+        ),
+        h("div",null,
+          h("div",{style:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:6}},"Electrolytes"),
+          h("div",{style:{display:"flex",gap:6}},
+            h("button",{onClick:()=>upd("electrolytes",!day.electrolytes),style:{...btn(day.electrolytes?"#0ea5e9":"#f1f5f9",day.electrolytes?"white":"#475569"),flex:1,padding:"9px 4px",fontSize:12}},day.electrolytes?"✓ Taken today":"Mark as taken")
+          ),
+          h("div",{style:{fontSize:10,color:"#94a3b8",marginTop:4}},"Sodium/potassium balance — especially on hot or heavy training days")
         )
       ),
-
-      // Summary
       h("div",{style:card},
         h("div",{style:stt},"Summary"),
         ...[{label:"Calories",val:tot.cal,max:T.cal,color:"#3b82f6",unit:" kcal"},{label:"Protein",val:tot.protein,max:T.protein,color:"#10b981",unit:"g"},{label:"Sugar",val:tot.sugar,max:T.sugar,color:sc,unit:"g"},{label:"Fat",val:tot.fat,max:100,color:"#f59e0b",unit:"g"}].map(b=>h(Bar,{key:b.label,...b})),
@@ -706,7 +692,6 @@ useEffect(()=>{
       )
     ),
 
-    // ══ TRAINING
     tab==="train"&&h("div",null,
       h("div",{style:card},
         h("div",{style:stt},"Session Type"),
@@ -718,14 +703,11 @@ useEffect(()=>{
           h("span",{style:{fontSize:11,fontWeight:700}},done,"/",exs.length," done")
         )
       ),
-
       (day.trainingType==="upper"||day.trainingType==="lower")&&h("div",{style:{...card,background:"#eff6ff",border:"none"}},
         h("div",{style:{fontSize:11,color:"#2563eb",fontWeight:600,marginBottom:2}},"📚 Program basis"),
         h("div",{style:{fontSize:10,color:"#3b82f6",lineHeight:1.5}},"Sets/reps optimised per Schoenfeld (2017) meta-analysis: 3–5 sets × 6–15 reps for hypertrophy. Face pulls at 20 reps for rotator cuff health.")
       ),
-
       ...exs.map((ex,i)=>h(ExRow,{key:i,ex,idx:i,onUpdate:(k,v)=>updEx(i,k,v),onRemove:()=>removeEx(i)})),
-
       h("div",{style:{...card,border:"1.5px dashed #e2e8f0",background:"#fafafa"}},
         h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showCEx?12:0}},
           h("div",{style:{fontSize:12,fontWeight:600,color:"#64748b"}},"Add exercise"),
@@ -748,7 +730,108 @@ useEffect(()=>{
       )
     ),
 
-    // ══ REBOOT
+    tab==="prog"&&h("div",null,
+      h("div",{style:card},
+        h("div",{style:stt},"Strength Goals"),
+        h("div",{style:{marginBottom:6,fontSize:11,color:"#64748b"}},"Update current weights to track progress"),
+        ...STRENGTH_GOALS.map(g=>{
+          const key="goal_"+g.name;
+          const cur=loadG(key,g.current);
+          const pct=Math.min(100,Math.round((cur-g.current)/(g.target-g.current)*100));
+          return h("div",{key:g.name,style:{marginBottom:14}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+              h("div",null,
+                h("span",{style:{fontSize:13,fontWeight:700,color:"#0f172a"}},g.name),
+                h("span",{style:{fontSize:10,color:"#94a3b8",marginLeft:6}},g.unit==="reps"?"reps":"kg")
+              ),
+              h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                h("input",{type:"number",min:g.current,max:g.target+50,step:g.unit==="reps"?1:2.5,
+                  defaultValue:cur,
+                  onBlur:e=>{saveG(key,+e.target.value);},
+                  style:{width:60,padding:"4px 6px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:13,fontWeight:700,textAlign:"center",outline:"none",background:"#f8fafc"}
+                }),
+                h("span",{style:{fontSize:10,color:"#94a3b8"}},"→"),
+                h("span",{style:{fontSize:13,fontWeight:700,color:g.color}},g.target,g.unit==="reps"?" reps":" kg")
+              )
+            ),
+            h("div",{style:{height:8,borderRadius:4,background:"#f1f5f9",overflow:"hidden",marginBottom:3}},
+              h("div",{style:{height:"100%",width:Math.max(0,pct)+"%",background:g.color,borderRadius:4,transition:"width 0.5s"}})
+            ),
+            h("div",{style:{fontSize:10,color:"#94a3b8",textAlign:"right"}},Math.max(0,pct),"% complete")
+          );
+        })
+      ),
+      h("div",{style:{...card,background:"#eff6ff",border:"none"}},
+        h("div",{style:{fontSize:12,fontWeight:700,color:"#1d4ed8",marginBottom:6}},"💪 Pull-up GTG — Do this every day"),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}},
+          ...["Morning","Midday","Afternoon","Evening"].map(t=>
+            h("div",{key:t,style:{background:"white",borderRadius:9,padding:"8px 10px",textAlign:"center"}},
+              h("div",{style:{fontSize:10,color:"#64748b",fontWeight:600}},t),
+              h("div",{style:{fontSize:16,fontWeight:800,color:"#2563eb"}},"3 reps")
+            )
+          )
+        ),
+        h("div",{style:{fontSize:10,color:"#3b82f6",marginTop:8,lineHeight:1.5}},"Never to failure. When 3 feels easy for 3 days → move to 4 reps.")
+      ),
+      h("div",{style:card},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+          h("div",{style:stt},"Today's Session"),
+          h("div",{style:{display:"flex",gap:6}},
+            ...["A","B"].map(d=>h("button",{key:d,onClick:()=>setProgDay(d),style:{...btn(progDay===d?"#0f172a":"#f1f5f9",progDay===d?"white":"#475569"),padding:"6px 16px",fontWeight:700}},d))
+          )
+        ),
+        h("div",{style:{fontSize:11,color:"#64748b",marginBottom:10}},
+          progDay==="A"?"Day A — Squat & Pull focus":"Day B — Deadlift & Push focus"
+        ),
+        h("div",{style:{fontSize:10,color:"#94a3b8",lineHeight:1.5,marginBottom:10}},
+          "Alternate A/B/A one week, B/A/B the next. Add weight every session when all sets clean."
+        ),
+        ...curProg.map((ex,i)=>{
+          const isBW=ex.unit==="BW"||ex.unit.includes("s");
+          const w=getProgWeight(ex);
+          return h("div",{key:i,style:{padding:"10px 0",borderBottom:"1px solid #f8fafc"}},
+            h("div",{style:{display:"flex",alignItems:"flex-start",gap:8}},
+              h("div",{style:{width:20,height:20,borderRadius:"50%",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#64748b",flexShrink:0,marginTop:1}},i+1),
+              h("div",{style:{flex:1}},
+                h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:4}},
+                  h("span",{style:{fontSize:13,fontWeight:700}},ex.name),
+                  h("span",{style:pill((TC[ex.tag]||"#64748b")+"22",TC[ex.tag]||"#64748b")},ex.tag)
+                ),
+                h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+                  h("span",{style:{fontSize:12,color:"#475569",fontWeight:600}},ex.sets,"×",ex.reps),
+                  h("span",{style:{fontSize:11,color:"#94a3b8"}},"@"),
+                  isBW
+                    ?h("span",{style:{fontSize:12,color:"#475569",fontWeight:600}},ex.unit)
+                    :h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                      h("input",{type:"number",min:0,max:500,step:2.5,value:w,
+                        onChange:e=>updProgWeight(ex.name,+e.target.value),
+                        style:{width:60,padding:"4px 6px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:13,fontWeight:700,textAlign:"center",outline:"none",background:"#f8fafc"}
+                      }),
+                      h("span",{style:{fontSize:11,color:"#94a3b8"}},"kg")
+                    )
+                ),
+                h("div",{style:{fontSize:10,color:"#94a3b8",marginTop:4,lineHeight:1.4}},ex.note)
+              )
+            )
+          );
+        })
+      ),
+      h("div",{style:card},
+        h("div",{style:stt},"Progression Rules"),
+        ...[
+          ["✅ All sets clean","Add weight next session (+2.5kg bench/squat, +5kg deadlift)"],
+          ["⚠️ Failed once","Repeat same weight next session"],
+          ["🔴 Failed twice","Deload 10% and rebuild"],
+          ["📅 Schedule","A/B/A one week → B/A/B next week"],
+        ].map(([title,desc])=>
+          h("div",{key:title,style:{display:"flex",gap:10,padding:"8px 0",borderBottom:"1px solid #f8fafc"}},
+            h("div",{style:{fontSize:12,fontWeight:700,minWidth:140}},title),
+            h("div",{style:{fontSize:11,color:"#64748b",lineHeight:1.4}},desc)
+          )
+        )
+      )
+    ),
+
     tab==="reboot"&&h("div",null,
       h("div",{style:{...card,background:"#0f172a",color:"white"}},
         h("div",{style:{textAlign:"center",padding:"8px 0 14px"}},
@@ -794,7 +877,6 @@ useEffect(()=>{
       )
     ),
 
-    // ══ LOG
     tab==="log"&&h("div",null,
       h("div",{style:card},
         h("div",{style:stt},"Past 14 Days"),
