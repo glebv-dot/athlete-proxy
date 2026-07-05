@@ -137,8 +137,10 @@ const MILESTONES=[
 // ─────────────────────────────────────────────
 // STORAGE
 // ─────────────────────────────────────────────
-const fmtKey=d=>d instanceof Date?d.toISOString().split("T")[0]:d;
-const todayStr=()=>new Date().toISOString().split("T")[0];
+// Local-timezone dates (toISOString is UTC and rolls the day over at the wrong hour)
+const localDate=d=>{const x=d||new Date();return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");};
+const fmtKey=d=>d instanceof Date?localDate(d):d;
+const todayStr=()=>localDate();
 const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}};
 const ld=(k)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch{return null;}};
 const saveDay=(date,data)=>sv("d4_"+fmtKey(date),data);
@@ -162,9 +164,19 @@ function calcLustig(meals,sugar){
 // ─────────────────────────────────────────────
 // AI FUNCTIONS
 // ─────────────────────────────────────────────
+async function callProxy(payload){
+  const hdrs=()=>{const h={"Content-Type":"application/json"};try{const k=localStorage.getItem("ath_app_key");if(k)h["x-app-key"]=k;}catch{}return h;};
+  let res=await fetch(PROXY_URL,{method:"POST",headers:hdrs(),body:JSON.stringify(payload)});
+  if(res.status===401){
+    const k=prompt("AI features are locked. Enter your app key:");
+    if(k){try{localStorage.setItem("ath_app_key",k);}catch{}res=await fetch(PROXY_URL,{method:"POST",headers:hdrs(),body:JSON.stringify(payload)});}
+  }
+  return res;
+}
+
 async function estimateMacros(name){
   try{
-    const res=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:300,messages:[{role:"user",content:`Estimate macros for: "${name}". Reply ONLY with a JSON object, no markdown, no explanation. Format: {"cal":300,"protein":25,"sugar":5,"fat":10}`}]})});
+    const res=await callProxy({model:"claude-haiku-4-5-20251001",max_tokens:300,messages:[{role:"user",content:`Estimate macros for: "${name}". Reply ONLY with a JSON object, no markdown, no explanation. Format: {"cal":300,"protein":25,"sugar":5,"fat":10}`}]});
     const data=await res.json();
     const text=data.content?.[0]?.text||"{}";
     return JSON.parse(text.replace(/```json|```/g,"").trim());
@@ -173,7 +185,7 @@ async function estimateMacros(name){
 
 async function analyzePhoto(b64,mime){
   try{
-    const res=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1000,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:`Identify all food items in this photo and estimate macros per item. Reply ONLY with a JSON array, no markdown, no explanation. Format: [{"name":"Food Name","cal":300,"protein":25,"sugar":5,"fat":10}]. If no food detected, return [].`}]}]})});
+    const res=await callProxy({model:"claude-haiku-4-5-20251001",max_tokens:1000,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:`Identify all food items in this photo and estimate macros per item. Reply ONLY with a JSON array, no markdown, no explanation. Format: [{"name":"Food Name","cal":300,"protein":25,"sugar":5,"fat":10}]. If no food detected, return [].`}]}]});
     const data=await res.json();
     const text=data.content?.[0]?.text||"[]";
     return JSON.parse(text.replace(/```json|```/g,"").trim());
@@ -922,33 +934,68 @@ function App(){
 
 ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
 // ── Supabase Sync
+// Hooks localStorage.setItem (sv/saveDay/saveG are const closures, not window
+// properties, so they cannot be wrapped directly). Debounced + deduped so rapid
+// state updates don't flood the network.
 (function(){
   var S='https://vgurpottnlcixzjmatlz.supabase.co',K='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZndXJwb3R0bmxjaXh6am1hdGx6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDc2MTMsImV4cCI6MjA5NDc4MzYxM30.60bgWxj79Md4eNZYrfnYEQgUNjQr4SJEK27QcTsoRr0',U='default';
-  function hdr(){return{'apikey':K,'Authorization':'Bearer '+K,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'};}
-  var _sv=window.sv;
-  window.sv=function(k,v){
-    if(_sv)_sv.call(this,k,v);
-    var tbl=k.startsWith('d4_')?'athlete_day_data':'athlete_globals';
-    var body=k.startsWith('d4_')
-      ?{user_id:U,date_key:k.replace('d4_',''),data:v,updated_at:new Date().toISOString()}
-      :{user_id:U,key:k.replace('g4_',''),value:v,updated_at:new Date().toISOString()};
-    fetch(S+'/rest/v1/'+tbl,{method:'POST',headers:hdr(),body:JSON.stringify(body)}).catch(function(){});
+  var pending={},lastSent={},askedSecret=false;
+  function hdr(){
+    var h={'apikey':K,'Authorization':'Bearer '+K,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'};
+    var sec=null;try{sec=localStorage.getItem('lt_sync_secret');}catch(e){}
+    if(sec)h['x-app-secret']=sec;
+    return h;
+  }
+  function send(k,v,keepalive){
+    var parsed;try{parsed=JSON.parse(v);}catch(e){parsed=v;}
+    var isDay=k.indexOf('d4_')===0;
+    var tbl=isDay?'athlete_day_data':'athlete_globals';
+    var conflict=isDay?'user_id,date_key':'user_id,key';
+    var body=isDay
+      ?{user_id:U,date_key:k.slice(3),data:parsed,updated_at:new Date().toISOString()}
+      :{user_id:U,key:k.slice(3),value:parsed,updated_at:new Date().toISOString()};
+    fetch(S+'/rest/v1/'+tbl+'?on_conflict='+conflict,{method:'POST',headers:hdr(),keepalive:!!keepalive,body:JSON.stringify(body)})
+      .then(function(r){
+        if(r.ok){lastSent[k]=v;}
+        else if((r.status===401||r.status===403)&&!askedSecret){
+          askedSecret=true;
+          var s=prompt('Sync is locked. Enter your sync password to enable cross-device sync (Cancel = keep data on this device only):');
+          if(s){try{localStorage.setItem('lt_sync_secret',s);}catch(e){}askedSecret=false;send(k,v);}
+        }
+      }).catch(function(){});
+  }
+  function queue(k){
+    clearTimeout(pending[k]);
+    pending[k]=setTimeout(function(){
+      var cur=null;try{cur=localStorage.getItem(k);}catch(e){}
+      if(cur!==null&&cur!==lastSent[k])send(k,cur);
+    },1500);
+  }
+  var _set=Storage.prototype.setItem;
+  Storage.prototype.setItem=function(k,v){
+    _set.call(this,k,v);
+    if(this===localStorage&&(k.indexOf('d4_')===0||k.indexOf('g4_')===0)&&v!==lastSent[k])queue(k);
   };
+  window.addEventListener('pagehide',function(){
+    Object.keys(pending).forEach(function(k){
+      clearTimeout(pending[k]);
+      var cur=null;try{cur=localStorage.getItem(k);}catch(e){}
+      if(cur!==null&&cur!==lastSent[k])send(k,cur,true);
+    });
+  });
   window.addEventListener('load',function(){
     var loaded=0;
     function tryReload(){if(++loaded>=2&&window.__athleteReload)window.__athleteReload();}
     fetch(S+'/rest/v1/athlete_day_data?user_id=eq.'+U+'&select=date_key,data',{headers:hdr()})
       .then(function(r){return r.json();})
       .then(function(rows){
-        if(!Array.isArray(rows))return;
-        rows.forEach(function(r){if(r.date_key)try{localStorage.setItem('d4_'+r.date_key,JSON.stringify(r.data));}catch(e){}});
+        if(Array.isArray(rows))rows.forEach(function(r){if(r.date_key){var s=JSON.stringify(r.data);try{_set.call(localStorage,'d4_'+r.date_key,s);lastSent['d4_'+r.date_key]=s;}catch(e){}}});
         tryReload();
       }).catch(function(){tryReload();});
     fetch(S+'/rest/v1/athlete_globals?user_id=eq.'+U+'&select=key,value',{headers:hdr()})
       .then(function(r){return r.json();})
       .then(function(rows){
-        if(!Array.isArray(rows))return;
-        rows.forEach(function(r){if(r.key)try{localStorage.setItem('g4_'+r.key,JSON.stringify(r.value));}catch(e){}});
+        if(Array.isArray(rows))rows.forEach(function(r){if(r.key){var s=JSON.stringify(r.value);try{_set.call(localStorage,'g4_'+r.key,s);lastSent['g4_'+r.key]=s;}catch(e){}}});
         tryReload();
       }).catch(function(){tryReload();});
   });

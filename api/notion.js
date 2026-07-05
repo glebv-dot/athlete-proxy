@@ -1,9 +1,20 @@
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://athlete-proxy.vercel.app";
+// Only Notion API resources these apps actually need
+const ENDPOINT_RE = /^(pages|databases|blocks|search)(\/[A-Za-z0-9_-]+)*$/;
+const ALLOWED_METHODS = new Set(["GET", "POST", "PATCH"]);
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-app-key");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 
   if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // Optional shared-secret auth: enforced once APP_SECRET is set in Vercel env
+  if (process.env.APP_SECRET && req.headers["x-app-key"] !== process.env.APP_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   let body = req.body;
 
@@ -23,7 +34,13 @@ export default async function handler(req, res) {
   const { endpoint, method = "PATCH", body: notionBody } = body || {};
 
   if (!endpoint) {
-    return res.status(400).json({ error: "Missing endpoint", received: body });
+    return res.status(400).json({ error: "Missing endpoint" });
+  }
+  if (typeof endpoint !== "string" || !ENDPOINT_RE.test(endpoint)) {
+    return res.status(400).json({ error: "Invalid endpoint" });
+  }
+  if (!ALLOWED_METHODS.has(method)) {
+    return res.status(400).json({ error: "Invalid method" });
   }
 
   const apiRes = await fetch(`https://api.notion.com/v1/${endpoint}`, {
