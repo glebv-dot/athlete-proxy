@@ -1,9 +1,18 @@
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://athlete-proxy.vercel.app";
+const MAX_TOKENS_CAP = 4000;
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-app-key");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 
   if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  // Optional shared-secret auth: enforced once APP_SECRET is set in Vercel env
+  if (process.env.APP_SECRET && req.headers["x-app-key"] !== process.env.APP_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   let body = req.body;
 
@@ -21,8 +30,12 @@ export default async function handler(req, res) {
   }
 
   if (!body?.messages) {
-    return res.status(400).json({ error: "Missing messages", received: body });
+    return res.status(400).json({ error: "Missing messages" });
   }
+  if (typeof body.model !== "string" || !/^claude-[a-z0-9.-]+$/.test(body.model)) {
+    return res.status(400).json({ error: "Invalid model" });
+  }
+  body.max_tokens = Math.min(Number(body.max_tokens) || 300, MAX_TOKENS_CAP);
 
   const apiRes = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
