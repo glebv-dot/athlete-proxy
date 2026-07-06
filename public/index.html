@@ -161,6 +161,14 @@ function calcLustig(meals,sugar){
   return{score:sc,label:sc>=8?"Excellent":sc>=6?"Good":sc>=4?"Fair":"Poor",color:sc>=8?"#10b981":sc>=6?"#f59e0b":sc>=4?"#f97316":"#ef4444"};
 }
 
+// Coffee drink detection — adding one in Food should bump the Today coffee counter
+const COFFEE_RE=/\b(coffee|espresso|latte|cappuccino|americano|macchiato|mocha|flat.?white|cortado|ristretto|affogato|doppio|nespresso)\b/i;
+const isCoffee=(name)=>COFFEE_RE.test(name||"");
+
+// Per-meal Lustig rating (m.lustig: 2 best … -2 worst) → badge label + color
+const LUSTIG_MEAL={"2":{label:"Excellent",color:"#10b981"},"1":{label:"Good",color:"#84cc16"},"0":{label:"Neutral",color:"#94a3b8"},"-1":{label:"Poor",color:"#f97316"},"-2":{label:"Avoid",color:"#ef4444"}};
+const mealLustig=(m)=>LUSTIG_MEAL[String(Math.max(-2,Math.min(2,Math.round((m&&m.lustig)||0))))];
+
 // ─────────────────────────────────────────────
 // AI FUNCTIONS
 // ─────────────────────────────────────────────
@@ -229,6 +237,43 @@ function Bar({label,val,max,color,unit}){
 }
 
 // ─────────────────────────────────────────────
+// TREND LINE CHART (Log tab)
+// Multi-series SVG line chart. Each series is auto-scaled to its own max over
+// the visible window, so macros (kcal) and sugar (g) are comparable as trends.
+// ─────────────────────────────────────────────
+function TrendChart({data,metrics,hidden,onToggle}){
+  const W=320,H=140,padL=6,padR=6,padT=8,padB=18;
+  const n=data.length;
+  const innerW=W-padL-padR,innerH=H-padT-padB;
+  const xAt=(i)=>n<=1?padL+innerW/2:padL+i*innerW/(n-1);
+  const maxOf=(k)=>Math.max(1,...data.map(d=>d[k]||0));
+  const yAt=(v,k)=>padT+innerH*(1-(v/maxOf(k)));
+  const path=(m)=>data.map((d,i)=>`${i?"L":"M"}${xAt(i).toFixed(1)} ${yAt(d[m.key]||0,m.key).toFixed(1)}`).join(" ");
+  const fmtX=(dk)=>{const d=new Date(dk+"T12:00:00");return d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});};
+  const visible=metrics.filter(m=>!hidden[m.key]);
+  const xIdx=n<=1?[0]:[0,Math.floor((n-1)/2),n-1];
+  return h("div",null,
+    h("svg",{viewBox:`0 0 ${W} ${H}`,style:{width:"100%",height:"auto",display:"block"}},
+      ...[0,0.25,0.5,0.75,1].map((g,gi)=>h("line",{key:"g"+gi,x1:padL,x2:W-padR,y1:(padT+innerH*g).toFixed(1),y2:(padT+innerH*g).toFixed(1),stroke:"#f1f5f9",strokeWidth:1})),
+      ...visible.map(m=>h("path",{key:"p"+m.key,d:path(m),fill:"none",stroke:m.color,strokeWidth:2,strokeLinejoin:"round",strokeLinecap:"round"})),
+      ...visible.map(m=>h("circle",{key:"d"+m.key,cx:xAt(n-1).toFixed(1),cy:yAt(data.length?data[n-1][m.key]||0:0,m.key).toFixed(1),r:2.6,fill:m.color})),
+      ...xIdx.map((i,li)=>h("text",{key:"x"+li,x:xAt(i).toFixed(1),y:H-5,textAnchor:li===0?"start":li===xIdx.length-1?"end":"middle",fontSize:8,fill:"#94a3b8"},data[i]?fmtX(data[i].dk):""))
+    ),
+    h("div",{style:{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}},
+      ...metrics.map(m=>{
+        const latest=data.length?Math.round(data[n-1][m.key]||0):0;
+        const off=!!hidden[m.key];
+        return h("div",{key:m.key,onClick:()=>onToggle(m.key),style:{display:"flex",alignItems:"center",gap:5,cursor:"pointer",opacity:off?0.4:1,padding:"3px 8px",borderRadius:8,background:"#f8fafc"}},
+          h("span",{style:{width:12,height:3,borderRadius:2,background:m.color,display:"inline-block"}}),
+          h("span",{style:{fontSize:10,fontWeight:600,color:"#475569"}},m.label),
+          h("span",{style:{fontSize:10,color:"#94a3b8"}},`${latest}${m.unit}`)
+        );
+      })
+    )
+  );
+}
+
+// ─────────────────────────────────────────────
 // FOOD ENTRY ROW
 // ─────────────────────────────────────────────
 function FoodRow({meal,onDelete,onEdit}){
@@ -245,12 +290,14 @@ function FoodRow({meal,onDelete,onEdit}){
       h("button",{onClick:()=>setEditing(false),style:{...btn("#f1f5f9","#475569"),flex:1,padding:"7px"}},"Cancel")
     )
   );
-  return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f8fafc"}},
+  const L=mealLustig(meal);
+  return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f8fafc",gap:6}},
     h("div",{style:{flex:1,minWidth:0}},
       h("div",{style:{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},meal.name),
       h("div",{style:{fontSize:10,color:"#94a3b8"}},meal.cal," kcal · ",meal.protein,"g P · ",meal.sugar,"g S")
     ),
-    h("div",{style:{display:"flex",gap:4,flexShrink:0}},
+    h("div",{style:{display:"flex",alignItems:"center",gap:4,flexShrink:0}},
+      h("span",{title:"Lustig rating",style:{...pill(L.color+"22",L.color),whiteSpace:"nowrap"}},L.label),
       h("button",{onClick:()=>setEditing(true),style:{background:"none",border:"none",color:"#94a3b8",fontSize:14,cursor:"pointer",padding:"2px 6px"}},"✏️"),
       h("button",{onClick:onDelete,style:{background:"none",border:"none",color:"#fca5a5",fontSize:14,cursor:"pointer",padding:"2px 4px"}},"✕")
     )
@@ -384,6 +431,8 @@ function App(){
   const [photoLoading,setPhotoLoading]=useState(false);
   const [showFinish,setShowFinish]=useState(false);
   const [saveFlash,setSaveFlash]=useState(false);
+  const [logRange,setLogRange]=useState(()=>loadG("logRange",14));
+  const [chartHidden,setChartHidden]=useState({});
   const fileRef=useRef();
 
   useEffect(()=>{
@@ -397,6 +446,7 @@ function App(){
   useEffect(()=>{saveG("rebootStart",rebootStart);},[rebootStart]);
   useEffect(()=>{saveG("progDay",progDay);},[progDay]);
   useEffect(()=>{saveG("progWeights",progWeights);},[progWeights]);
+  useEffect(()=>{saveG("logRange",logRange);},[logRange]);
 
   useEffect(()=>{
     window.__athleteReload=()=>{
@@ -436,15 +486,15 @@ function App(){
 
   const addFood=(f)=>{
     const q=getQ(f),mult=q/f.per;
-    setDay(p=>({...p,meals:[...p.meals,{name:`${f.name} (${q}${f.per===1?"×":"g"})`,cal:Math.round((f.cal||0)*mult),protein:Math.round((f.protein||0)*mult*10)/10,sugar:Math.round((f.sugar||0)*mult*10)/10,fat:Math.round((f.fat||0)*mult*10)/10,omega3:Math.round((f.omega3||0)*mult*10)/10,lustig:f.lustig||0,id:Date.now()+Math.random()}]}));
+    setDay(p=>({...p,coffees:isCoffee(f.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{name:`${f.name} (${q}${f.per===1?"×":"g"})`,cal:Math.round((f.cal||0)*mult),protein:Math.round((f.protein||0)*mult*10)/10,sugar:Math.round((f.sugar||0)*mult*10)/10,fat:Math.round((f.fat||0)*mult*10)/10,omega3:Math.round((f.omega3||0)*mult*10)/10,lustig:f.lustig||0,id:Date.now()+Math.random()}]}));
     setFsearch("");
   };
   const editFood=(id,updated)=>setDay(p=>({...p,meals:p.meals.map(m=>m.id===id?{...m,...updated}:m)}));
-  const delFood=(id)=>setDay(p=>({...p,meals:p.meals.filter(m=>m.id!==id)}));
+  const delFood=(id)=>setDay(p=>{const m=p.meals.find(x=>x.id===id);return{...p,coffees:m&&isCoffee(m.name)?Math.max(0,(p.coffees||0)-1):p.coffees,meals:p.meals.filter(x=>x.id!==id)};});
 
   const addManual=()=>{
     if(!manual.name)return;
-    setDay(p=>({...p,meals:[...p.meals,{name:manual.name,cal:+manual.cal||0,protein:+manual.protein||0,sugar:+manual.sugar||0,fat:+manual.fat||0,lustig:0,id:Date.now()}]}));
+    setDay(p=>({...p,coffees:isCoffee(manual.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{name:manual.name,cal:+manual.cal||0,protein:+manual.protein||0,sugar:+manual.sugar||0,fat:+manual.fat||0,lustig:0,id:Date.now()}]}));
     setManual({name:"",cal:"",protein:"",sugar:"",fat:"",_loading:false});
     setShowM(false);
   };
@@ -603,7 +653,7 @@ function App(){
               h("div",{style:{fontSize:10,color:"#94a3b8"}},item.cal,"kcal · ",item.protein,"g P · ",item.sugar,"g S · ",item.fat,"g F")
             ),
             h("div",{style:{display:"flex",gap:6}},
-              h("button",{onClick:()=>{setDay(p=>({...p,meals:[...p.meals,{...item,lustig:0,id:Date.now()+Math.random()}]}));setPhotoItems(p=>p.filter((_,i)=>i!==idx));},style:{...btn("#10b981","white"),padding:"5px 12px",fontSize:11}},"Add"),
+              h("button",{onClick:()=>{setDay(p=>({...p,coffees:isCoffee(item.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{...item,lustig:item.lustig||0,id:Date.now()+Math.random()}]}));setPhotoItems(p=>p.filter((_,i)=>i!==idx));},style:{...btn("#10b981","white"),padding:"5px 12px",fontSize:11}},"Add"),
               h("button",{onClick:()=>setPhotoItems(p=>p.filter((_,i)=>i!==idx)),style:{...btn("#f1f5f9","#475569"),padding:"5px 8px",fontSize:11}},"✕")
             )
           ))
@@ -895,8 +945,32 @@ function App(){
 
     tab==="log"&&h("div",null,
       h("div",{style:card},
-        h("div",{style:stt},"Past 14 Days"),
-        ...Array.from({length:14},(_,i)=>{
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+          h("div",{style:{...stt,marginBottom:0}},"Trends"),
+          h("div",{style:{display:"flex",gap:4}},
+            ...[7,14,30,90].map(r=>h("button",{key:r,onClick:()=>setLogRange(r),style:{...btn(logRange===r?"#0f172a":"#f1f5f9",logRange===r?"white":"#475569"),padding:"5px 9px",fontSize:11}},r+"d"))
+          )
+        ),
+        h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
+          h("span",{style:{fontSize:10,color:"#94a3b8"}},"Custom:"),
+          h("input",{type:"number",min:2,max:365,value:logRange,onChange:e=>{const v=Math.max(2,Math.min(365,Math.round(+e.target.value)||14));setLogRange(v);},style:{...inp,width:76,padding:"6px 8px"}}),
+          h("span",{style:{fontSize:10,color:"#94a3b8"}},"days")
+        ),
+        h(TrendChart,{
+          data:Array.from({length:logRange},(_,i)=>{
+            const d=new Date();d.setDate(d.getDate()-(logRange-1-i));const dk=fmtKey(d);const data=loadDay(dk);
+            const t=((data&&data.meals)||[]).reduce((a,m)=>({cal:a.cal+(m.cal||0),protein:a.protein+(m.protein||0),sugar:a.sugar+(m.sugar||0),fat:a.fat+(m.fat||0)}),{cal:0,protein:0,sugar:0,fat:0});
+            return{dk,...t};
+          }),
+          metrics:[{key:"cal",label:"Calories",color:"#3b82f6",unit:" kcal"},{key:"protein",label:"Protein",color:"#10b981",unit:"g"},{key:"sugar",label:"Sugar",color:"#ef4444",unit:"g"},{key:"fat",label:"Fat",color:"#f59e0b",unit:"g"}],
+          hidden:chartHidden,
+          onToggle:(k)=>setChartHidden(p=>({...p,[k]:!p[k]}))
+        }),
+        h("div",{style:{fontSize:9,color:"#cbd5e1",marginTop:6}},"Each line auto-scaled to its own range · tap a metric to show/hide")
+      ),
+      h("div",{style:card},
+        h("div",{style:stt},`Past ${logRange} Days`),
+        ...Array.from({length:logRange},(_,i)=>{
           const d=new Date();d.setDate(d.getDate()-i);
           const dk=fmtKey(d);
           const data=loadDay(dk);
