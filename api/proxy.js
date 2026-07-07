@@ -1,6 +1,18 @@
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://athlete-proxy.vercel.app";
 const MAX_TOKENS_CAP = 4000;
 
+// Requests are authorized if they come from the app's own domain (Origin/Referer)
+// OR carry the optional APP_SECRET. This lets the app work with no user-entered key
+// while still rejecting random callers (e.g. curl with no headers). A determined
+// attacker can spoof these headers, so keep the model allowlist + max_tokens cap as
+// the real blast-radius limits.
+function isAuthorized(req) {
+  if (process.env.APP_SECRET && req.headers["x-app-key"] === process.env.APP_SECRET) return true;
+  const origin = req.headers.origin || "";
+  const referer = req.headers.referer || "";
+  return origin === ALLOWED_ORIGIN || referer.startsWith(ALLOWED_ORIGIN + "/") || referer === ALLOWED_ORIGIN;
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-app-key");
@@ -9,8 +21,7 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  // Optional shared-secret auth: enforced once APP_SECRET is set in Vercel env
-  if (process.env.APP_SECRET && req.headers["x-app-key"] !== process.env.APP_SECRET) {
+  if (!isAuthorized(req)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 

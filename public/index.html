@@ -173,13 +173,11 @@ const mealLustig=(m)=>LUSTIG_MEAL[String(Math.max(-2,Math.min(2,Math.round((m&&m
 // AI FUNCTIONS
 // ─────────────────────────────────────────────
 async function callProxy(payload){
-  const hdrs=()=>{const h={"Content-Type":"application/json"};try{const k=localStorage.getItem("ath_app_key");if(k)h["x-app-key"]=k;}catch{}return h;};
-  let res=await fetch(PROXY_URL,{method:"POST",headers:hdrs(),body:JSON.stringify(payload)});
-  if(res.status===401){
-    const k=prompt("AI features are locked. Enter your app key:");
-    if(k){try{localStorage.setItem("ath_app_key",k);}catch{}res=await fetch(PROXY_URL,{method:"POST",headers:hdrs(),body:JSON.stringify(payload)});}
-  }
-  return res;
+  // The proxy authorizes requests by their origin (this app's domain), so no key
+  // is needed. A previously stored key is still sent if present, for compatibility.
+  const h={"Content-Type":"application/json"};
+  try{const k=localStorage.getItem("ath_app_key");if(k)h["x-app-key"]=k;}catch{}
+  return fetch(PROXY_URL,{method:"POST",headers:h,body:JSON.stringify(payload)});
 }
 
 async function estimateMacros(name){
