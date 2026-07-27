@@ -81,3 +81,57 @@ create policy "anon gated update" on public.screen_time for update to anon using
 
 -- drop redundant duplicate unique constraint
 alter table public.life_tracker_data drop constraint if exists life_tracker_data_user_key_unique;
+
+-- Athlete sync hardening (2026-07): least-privilege grants, efficient policies,
+-- and a database-side last-write-wins guard for devices that reconnect late.
+revoke all on public.athlete_day_data from anon, authenticated;
+revoke all on public.athlete_globals from anon, authenticated;
+grant select, insert, update on public.athlete_day_data to anon, authenticated;
+grant select, insert, update on public.athlete_globals to anon, authenticated;
+
+drop policy if exists "Users can access own data" on public.athlete_day_data;
+drop policy if exists "anon gated access" on public.athlete_day_data;
+create policy "authenticated athlete data" on public.athlete_day_data
+  for all to authenticated
+  using (user_id = (select auth.uid())::text)
+  with check (user_id = (select auth.uid())::text);
+create policy "anon athlete data" on public.athlete_day_data
+  for all to anon
+  using ((select private.sync_ok()))
+  with check ((select private.sync_ok()));
+
+drop policy if exists "Users can access own data" on public.athlete_globals;
+drop policy if exists "anon gated access" on public.athlete_globals;
+create policy "authenticated athlete globals" on public.athlete_globals
+  for all to authenticated
+  using (user_id = (select auth.uid())::text)
+  with check (user_id = (select auth.uid())::text);
+create policy "anon athlete globals" on public.athlete_globals
+  for all to anon
+  using ((select private.sync_ok()))
+  with check ((select private.sync_ok()));
+
+create or replace function private.keep_latest_athlete_sync()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if old.updated_at is not null
+     and (new.updated_at is null or new.updated_at < old.updated_at) then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function private.keep_latest_athlete_sync() from public;
+
+drop trigger if exists keep_latest_athlete_day on public.athlete_day_data;
+create trigger keep_latest_athlete_day
+before update on public.athlete_day_data
+for each row execute function private.keep_latest_athlete_sync();
+
+drop trigger if exists keep_latest_athlete_global on public.athlete_globals;
+create trigger keep_latest_athlete_global
+before update on public.athlete_globals
+for each row execute function private.keep_latest_athlete_sync();
