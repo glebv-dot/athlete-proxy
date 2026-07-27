@@ -332,7 +332,7 @@ function TrendChart({data,metrics,hidden,onToggle}){
 // ─────────────────────────────────────────────
 // FOOD ENTRY ROW
 // ─────────────────────────────────────────────
-function FoodRow({meal,onDelete,onEdit,onSave,isSaved}){
+function FoodRow({meal,onDelete,onEdit,onToggleLibrary,isSaved}){
   const [editing,setEditing]=useState(false);
   const [vals,setVals]=useState({name:meal.name,cal:meal.cal,protein:meal.protein,sugar:meal.sugar,fat:meal.fat});
   const save=()=>{onEdit({...meal,...vals,cal:+vals.cal,protein:+vals.protein,sugar:+vals.sugar,fat:+vals.fat});setEditing(false);};
@@ -354,7 +354,7 @@ function FoodRow({meal,onDelete,onEdit,onSave,isSaved}){
     ),
     h("div",{style:{display:"flex",alignItems:"center",gap:4,flexShrink:0}},
       h("span",{title:"Lustig-style food quality: sugar load, protein density and processing",style:{...pill(L.color+"22",L.color),whiteSpace:"nowrap"}},L.label),
-      h("button",{onClick:onSave,disabled:isSaved,title:isSaved?"Saved to Food Library":"Save to Food Library","aria-label":isSaved?`${meal.name} is saved to Food Library`:`Save ${meal.name} to Food Library`,style:{background:"none",border:"none",color:isSaved?"#f59e0b":"#94a3b8",fontSize:16,cursor:isSaved?"default":"pointer",padding:"2px 5px"}},isSaved?"★":"☆"),
+      h("button",{onClick:onToggleLibrary,title:isSaved?"Remove from Food Library":"Save to Food Library","aria-label":isSaved?`Remove ${meal.name} from Food Library`:`Save ${meal.name} to Food Library`,"aria-pressed":isSaved,style:{background:"none",border:"none",color:isSaved?"#f59e0b":"#94a3b8",fontSize:16,cursor:"pointer",padding:"2px 5px"}},isSaved?"★":"☆"),
       h("button",{onClick:()=>setEditing(true),style:{background:"none",border:"none",color:"#94a3b8",fontSize:14,cursor:"pointer",padding:"2px 6px"}},"✏️"),
       h("button",{onClick:onDelete,style:{background:"none",border:"none",color:"#fca5a5",fontSize:14,cursor:"pointer",padding:"2px 4px"}},"✕")
     )
@@ -594,9 +594,11 @@ function App(){
   const delFood=(id)=>setDay(p=>{const m=p.meals.find(x=>x.id===id);return{...p,coffees:m&&isCoffee(m.name)?Math.max(0,(p.coffees||0)-1):p.coffees,meals:p.meals.filter(x=>x.id!==id)};});
   const normalizedFoodName=(name)=>String(name||"").trim().toLowerCase();
   const isMealSaved=(meal)=>foodLibrary.some(f=>normalizedFoodName(f.name)===normalizedFoodName(meal.name));
-  const saveMealToLibrary=(meal)=>{
-    if(isMealSaved(meal))return;
-    setFoodLibrary(p=>[...p,{id:`custom_${Date.now()}`,name:String(meal.name||"Saved food").trim(),cal:+meal.cal||0,protein:+meal.protein||0,sugar:+meal.sugar||0,fat:+meal.fat||0,omega3:+meal.omega3||0,per:1,def:1,rank:p.length+1}]);
+  const toggleMealLibrary=(meal)=>{
+    const key=normalizedFoodName(meal.name);
+    setFoodLibrary(p=>p.some(f=>normalizedFoodName(f.name)===key)
+      ?p.filter(f=>normalizedFoodName(f.name)!==key)
+      :[...p,{id:`custom_${Date.now()}`,name:String(meal.name||"Saved food").trim(),cal:+meal.cal||0,protein:+meal.protein||0,sugar:+meal.sugar||0,fat:+meal.fat||0,omega3:+meal.omega3||0,per:1,def:1,rank:p.length+1}]);
   };
   const updateLibraryFood=(id,updated)=>setFoodLibrary(p=>p.map(f=>f.id===id?updated:f));
   const deleteLibraryFood=(id)=>setFoodLibrary(p=>p.filter(f=>f.id!==id));
@@ -734,7 +736,7 @@ function App(){
       h("div",{style:card},
         h("div",{style:stt},"Meals (",day.meals.length,")"),
         day.meals.length===0&&h("div",{style:{color:"#94a3b8",fontSize:12,textAlign:"center",padding:"8px 0"}},"No meals yet — tap Food tab"),
-        ...day.meals.slice(-4).map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u),onSave:()=>saveMealToLibrary(m),isSaved:isMealSaved(m)}))
+        ...day.meals.slice(-4).map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u),onToggleLibrary:()=>toggleMealLibrary(m),isSaved:isMealSaved(m)}))
       ),
       h("div",{style:card},
         h("div",{style:stt},"Training"),
@@ -806,7 +808,7 @@ function App(){
       ),
       day.meals.length>0&&h("div",{style:card},
         h("div",{style:stt},"Today's Meals (",day.meals.length,")"),
-        ...day.meals.map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u),onSave:()=>saveMealToLibrary(m),isSaved:isMealSaved(m)}))
+        ...day.meals.map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u),onToggleLibrary:()=>toggleMealLibrary(m),isSaved:isMealSaved(m)}))
       ),
       h("div",{style:card},
         h("div",{style:stt},"Supplements"),
