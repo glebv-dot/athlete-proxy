@@ -57,6 +57,7 @@ const FOODS=[
   {name:"Salmon pâté",       cal:190,protein:14,sugar:1,  fat:14, per:100,def:95, lustig:2,  rank:6},
   {name:"FJORD Omega-3 (2×)",cal:0,  protein:0, sugar:0,  fat:0,  per:1,  def:2,  lustig:2,  rank:22, omega3:0.97},
 ];
+const seedFoodLibrary=()=>FOODS.map((f,i)=>({...f,id:`builtin_${i}`}));
 
 // ─────────────────────────────────────────────
 // TRAINING
@@ -154,10 +155,15 @@ const emptyDay=()=>({weight:"",sleepScore:"",bedtime:"",coffees:0,omega3:0,lthea
 // ─────────────────────────────────────────────
 function calcLustig(meals,sugar){
   if(!meals||!meals.length)return{score:0,label:"No data",color:"#94a3b8"};
-  let pts=0,max=0;
-  meals.forEach(m=>{pts+=(m.lustig||0);max+=2;});
-  if(sugar>75)pts-=3;else if(sugar>50)pts-=2;else if(sugar<=25)pts+=2;else if(sugar<=35)pts+=1;
-  const sc=Math.max(0,Math.min(10,max>0?Math.round(((pts+max)/(max*2))*10):5));
+  let weighted=0,totalWeight=0;
+  meals.forEach(m=>{
+    const weight=Math.max(50,Number(m.cal)||0);
+    weighted+=lustigValue(m)*weight;
+    totalWeight+=weight;
+  });
+  const avg=totalWeight?weighted/totalWeight:0;
+  const sugarAdjustment=sugar<=25?0.5:sugar<=35?0:sugar<=50?-1:sugar<=75?-2:-3;
+  const sc=Math.max(0,Math.min(10,Math.round(((avg+2)/4)*10+sugarAdjustment)));
   return{score:sc,label:sc>=8?"Excellent":sc>=6?"Good":sc>=4?"Fair":"Poor",color:sc>=8?"#10b981":sc>=6?"#f59e0b":sc>=4?"#f97316":"#ef4444"};
 }
 
@@ -165,9 +171,27 @@ function calcLustig(meals,sugar){
 const COFFEE_RE=/\b(coffee|espresso|latte|cappuccino|americano|macchiato|mocha|flat.?white|cortado|ristretto|affogato|doppio|nespresso)\b/i;
 const isCoffee=(name)=>COFFEE_RE.test(name||"");
 
-// Per-meal Lustig rating (m.lustig: 2 best … -2 worst) → badge label + color
+// Lustig-style heuristic: favor low sugar and protein-dense whole foods;
+// penalize high sugar load, low-protein calories, and obvious processed foods.
+// This is a food-quality guide, not a clinical score.
+const WHOLE_FOOD_RE=/\b(chicken|beef|salmon|fish|egg|yogurt|oat|rice|nut|peanut|cheese|vegetable|fruit|bean|lentil)\b/i;
+const PROCESSED_FOOD_RE=/\b(chocolate|kitkat|croissant|toasts?|pastry|candy|sweets?|cookie|biscuit|cake|donut|doughnut|gainer|protein bar|tortilla|chips?|cheese balls?|soda|cola|energy drink)\b/i;
+function lustigValue(m){
+  const cal=Math.max(0,Number(m?.cal)||0),protein=Math.max(0,Number(m?.protein)||0),sugar=Math.max(0,Number(m?.sugar)||0);
+  const sugarShare=cal>0?(sugar*4)/cal:0,proteinShare=cal>0?(protein*4)/cal:0;
+  let value=0;
+  if(sugar<=5&&sugarShare<=0.1)value+=1;
+  else if(sugar>25||sugarShare>0.3)value-=2;
+  else if(sugar>12||sugarShare>0.18)value-=1;
+  if(protein>=20||proteinShare>=0.25)value+=1;
+  else if(cal>=250&&proteinShare<0.08)value-=1;
+  if(PROCESSED_FOOD_RE.test(m?.name||""))value-=1;
+  else if(WHOLE_FOOD_RE.test(m?.name||""))value+=1;
+  return Math.max(-2,Math.min(2,value));
+}
+
 const LUSTIG_MEAL={"2":{label:"Excellent",color:"#10b981"},"1":{label:"Good",color:"#84cc16"},"0":{label:"Neutral",color:"#94a3b8"},"-1":{label:"Poor",color:"#f97316"},"-2":{label:"Avoid",color:"#ef4444"}};
-const mealLustig=(m)=>LUSTIG_MEAL[String(Math.max(-2,Math.min(2,Math.round((m&&m.lustig)||0))))];
+const mealLustig=(m)=>LUSTIG_MEAL[String(lustigValue(m))];
 
 // ─────────────────────────────────────────────
 // AI FUNCTIONS
@@ -308,7 +332,7 @@ function TrendChart({data,metrics,hidden,onToggle}){
 // ─────────────────────────────────────────────
 // FOOD ENTRY ROW
 // ─────────────────────────────────────────────
-function FoodRow({meal,onDelete,onEdit}){
+function FoodRow({meal,onDelete,onEdit,onSave,isSaved}){
   const [editing,setEditing]=useState(false);
   const [vals,setVals]=useState({name:meal.name,cal:meal.cal,protein:meal.protein,sugar:meal.sugar,fat:meal.fat});
   const save=()=>{onEdit({...meal,...vals,cal:+vals.cal,protein:+vals.protein,sugar:+vals.sugar,fat:+vals.fat});setEditing(false);};
@@ -329,9 +353,50 @@ function FoodRow({meal,onDelete,onEdit}){
       h("div",{style:{fontSize:10,color:"#94a3b8"}},meal.cal," kcal · ",meal.protein,"g P · ",meal.sugar,"g S")
     ),
     h("div",{style:{display:"flex",alignItems:"center",gap:4,flexShrink:0}},
-      h("span",{title:"Lustig rating",style:{...pill(L.color+"22",L.color),whiteSpace:"nowrap"}},L.label),
+      h("span",{title:"Lustig-style food quality: sugar load, protein density and processing",style:{...pill(L.color+"22",L.color),whiteSpace:"nowrap"}},L.label),
+      h("button",{onClick:onSave,disabled:isSaved,title:isSaved?"Saved to Food Library":"Save to Food Library","aria-label":isSaved?`${meal.name} is saved to Food Library`:`Save ${meal.name} to Food Library`,style:{background:"none",border:"none",color:isSaved?"#f59e0b":"#94a3b8",fontSize:16,cursor:isSaved?"default":"pointer",padding:"2px 5px"}},isSaved?"★":"☆"),
       h("button",{onClick:()=>setEditing(true),style:{background:"none",border:"none",color:"#94a3b8",fontSize:14,cursor:"pointer",padding:"2px 6px"}},"✏️"),
       h("button",{onClick:onDelete,style:{background:"none",border:"none",color:"#fca5a5",fontSize:14,cursor:"pointer",padding:"2px 4px"}},"✕")
+    )
+  );
+}
+
+function LibraryFoodRow({food,qty,onQtyChange,onAdd,onEdit,onDelete}){
+  const [editing,setEditing]=useState(false);
+  const [confirmingDelete,setConfirmingDelete]=useState(false);
+  const [vals,setVals]=useState({...food});
+  const openEdit=()=>{setVals({...food});setEditing(true);};
+  const save=()=>{
+    if(!String(vals.name||"").trim())return;
+    onEdit({...food,name:String(vals.name).trim(),cal:+vals.cal||0,protein:+vals.protein||0,sugar:+vals.sugar||0,fat:+vals.fat||0,per:Math.max(1,+vals.per||1),def:Math.max(1,+vals.def||1)});
+    setEditing(false);
+  };
+  if(editing)return h("div",{style:{padding:"10px",borderRadius:10,background:"#f8fafc",marginBottom:8}},
+    h("input",{style:{...inp,marginBottom:6},value:vals.name,onChange:e=>setVals(p=>({...p,name:e.target.value})),placeholder:"Food name"}),
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}},
+      ...[{k:"cal",l:"Calories"},{k:"protein",l:"Protein g"},{k:"sugar",l:"Sugar g"},{k:"fat",l:"Fat g"},{k:"per",l:"Values per g/unit"},{k:"def",l:"Default quantity"}].map(x=>h("input",{key:x.k,type:"number",min:0,style:inp,placeholder:x.l,title:x.l,value:vals[x.k],onChange:e=>setVals(p=>({...p,[x.k]:e.target.value}))}))
+    ),
+    h("div",{style:{fontSize:9,color:"#94a3b8",marginBottom:7}},"Set ‘Values per’ to 100 for nutrition per 100g, or 1 for one item/serving."),
+    h("div",{style:{display:"flex",gap:6}},
+      h("button",{onClick:save,style:{...btn("#10b981","white"),flex:1,padding:"7px"}},"Save changes"),
+      h("button",{onClick:()=>setEditing(false),style:{...btn("#e2e8f0","#475569"),flex:1,padding:"7px"}},"Cancel")
+    )
+  );
+  const isUnit=food.per===1;
+  const scaled=(field)=>Math.round(((food[field]||0)*(qty/food.per))*10)/10;
+  return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #f8fafc",gap:8}},
+    h("div",{style:{flex:1,minWidth:0}},
+      h("div",{style:{fontSize:12,fontWeight:600}},food.name),
+      h("div",{style:{fontSize:10,color:"#94a3b8"}},scaled("cal"),"kcal · ",scaled("protein"),"g P · ",scaled("sugar"),"g S · ",scaled("fat"),"g F")
+    ),
+    h("div",{style:{display:"flex",alignItems:"center",gap:4,flexShrink:0}},
+      h("input",{type:"number",min:isUnit?1:5,max:isUnit?20:2000,step:isUnit?1:5,value:qty,onChange:e=>onQtyChange(+e.target.value),style:{width:48,padding:"5px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12,fontWeight:700,textAlign:"center",outline:"none",background:"#f8fafc"}}),
+      h("span",{style:{fontSize:10,color:"#94a3b8"}},isUnit?"×":"g"),
+      h("button",{onClick:onAdd,style:{...btn("#0f172a","white"),padding:"6px 9px",fontSize:13,borderRadius:8}},"+"),
+      !confirmingDelete&&h("button",{onClick:openEdit,title:"Edit library item","aria-label":`Edit ${food.name}`,style:{background:"none",border:"none",color:"#64748b",fontSize:13,cursor:"pointer",padding:"3px"}},"✏️"),
+      !confirmingDelete&&h("button",{onClick:()=>setConfirmingDelete(true),title:"Delete library item","aria-label":`Delete ${food.name}`,style:{background:"none",border:"none",color:"#fca5a5",fontSize:14,cursor:"pointer",padding:"3px"}},"✕"),
+      confirmingDelete&&h("button",{onClick:onDelete,"aria-label":`Confirm delete ${food.name}`,style:{...btn("#ef4444","white"),padding:"5px 7px",fontSize:10}},"Delete?"),
+      confirmingDelete&&h("button",{onClick:()=>setConfirmingDelete(false),"aria-label":`Cancel delete ${food.name}`,style:{...btn("#e2e8f0","#475569"),padding:"5px 6px",fontSize:10}},"Cancel")
     )
   );
 }
@@ -452,6 +517,7 @@ function App(){
 
   const [progDay,setProgDay]=useState(()=>loadG("progDay","A"));
   const [progWeights,setProgWeights]=useState(()=>loadG("progWeights",{}));
+  const [foodLibrary,setFoodLibrary]=useState(()=>loadG("foodLibrary",null)||seedFoodLibrary());
 
   const [fsearch,setFsearch]=useState("");
   const [qtys,setQtys]=useState({});
@@ -480,6 +546,7 @@ function App(){
   useEffect(()=>{saveG("rebootStart",rebootStart);},[rebootStart]);
   useEffect(()=>{saveG("progDay",progDay);},[progDay]);
   useEffect(()=>{saveG("progWeights",progWeights);},[progWeights]);
+  useEffect(()=>{saveG("foodLibrary",foodLibrary);},[foodLibrary]);
   useEffect(()=>{saveG("logRange",logRange);},[logRange]);
 
   useEffect(()=>{
@@ -504,8 +571,8 @@ function App(){
     else{setExs((t==="upper"?EU:EL).map(e=>({...e,done:false})));upd("trainingType",t);}
   };
 
-  const getQ=(f)=>qtys[f.name]!==undefined?qtys[f.name]:f.def;
-  const sc2=(f,field)=>Math.round(((f[field]||0)*(getQ(f)/f.per))*10)/10;
+  const foodKey=(f)=>f.id||f.name;
+  const getQ=(f)=>qtys[foodKey(f)]!==undefined?qtys[foodKey(f)]:f.def;
 
   const tot=day.meals.reduce((a,m)=>({cal:a.cal+(m.cal||0),protein:a.protein+(m.protein||0),sugar:a.sugar+(m.sugar||0),fat:a.fat+(m.fat||0),omega3:a.omega3+(m.omega3||0)}),{cal:0,protein:0,sugar:0,fat:0,omega3:0});
   const o3=tot.omega3+day.omega3;
@@ -520,15 +587,23 @@ function App(){
 
   const addFood=(f)=>{
     const q=getQ(f),mult=q/f.per;
-    setDay(p=>({...p,coffees:isCoffee(f.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{name:`${f.name} (${q}${f.per===1?"×":"g"})`,cal:Math.round((f.cal||0)*mult),protein:Math.round((f.protein||0)*mult*10)/10,sugar:Math.round((f.sugar||0)*mult*10)/10,fat:Math.round((f.fat||0)*mult*10)/10,omega3:Math.round((f.omega3||0)*mult*10)/10,lustig:f.lustig||0,id:Date.now()+Math.random()}]}));
+    setDay(p=>({...p,coffees:isCoffee(f.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{name:`${f.name} (${q}${f.per===1?"×":"g"})`,cal:Math.round((f.cal||0)*mult),protein:Math.round((f.protein||0)*mult*10)/10,sugar:Math.round((f.sugar||0)*mult*10)/10,fat:Math.round((f.fat||0)*mult*10)/10,omega3:Math.round((f.omega3||0)*mult*10)/10,id:Date.now()+Math.random()}]}));
     setFsearch("");
   };
   const editFood=(id,updated)=>setDay(p=>({...p,meals:p.meals.map(m=>m.id===id?{...m,...updated}:m)}));
   const delFood=(id)=>setDay(p=>{const m=p.meals.find(x=>x.id===id);return{...p,coffees:m&&isCoffee(m.name)?Math.max(0,(p.coffees||0)-1):p.coffees,meals:p.meals.filter(x=>x.id!==id)};});
+  const normalizedFoodName=(name)=>String(name||"").trim().toLowerCase();
+  const isMealSaved=(meal)=>foodLibrary.some(f=>normalizedFoodName(f.name)===normalizedFoodName(meal.name));
+  const saveMealToLibrary=(meal)=>{
+    if(isMealSaved(meal))return;
+    setFoodLibrary(p=>[...p,{id:`custom_${Date.now()}`,name:String(meal.name||"Saved food").trim(),cal:+meal.cal||0,protein:+meal.protein||0,sugar:+meal.sugar||0,fat:+meal.fat||0,omega3:+meal.omega3||0,per:1,def:1,rank:p.length+1}]);
+  };
+  const updateLibraryFood=(id,updated)=>setFoodLibrary(p=>p.map(f=>f.id===id?updated:f));
+  const deleteLibraryFood=(id)=>setFoodLibrary(p=>p.filter(f=>f.id!==id));
 
   const addManual=()=>{
     if(!manual.name)return;
-    setDay(p=>({...p,coffees:isCoffee(manual.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{name:manual.name,cal:+manual.cal||0,protein:+manual.protein||0,sugar:+manual.sugar||0,fat:+manual.fat||0,lustig:0,id:Date.now()}]}));
+    setDay(p=>({...p,coffees:isCoffee(manual.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{name:manual.name,cal:+manual.cal||0,protein:+manual.protein||0,sugar:+manual.sugar||0,fat:+manual.fat||0,id:Date.now()}]}));
     setManual({name:"",cal:"",protein:"",sugar:"",fat:"",_loading:false});
     setShowM(false);
   };
@@ -567,7 +642,7 @@ function App(){
 
   const handleSaveProgress=()=>{saveDay(viewDate,{...day,exs});setSaveFlash(true);setTimeout(()=>setSaveFlash(false),2000);};
 
-  const ff=FOODS.filter(f=>f.name.toLowerCase().includes(fsearch.toLowerCase())).sort((a,b)=>a.rank-b.rank);
+  const ff=foodLibrary.filter(f=>f.name.toLowerCase().includes(fsearch.toLowerCase())).sort((a,b)=>(a.rank||999)-(b.rank||999));
   const last7=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-i);return fmtKey(d);});
 
   const TABS=[
@@ -632,7 +707,7 @@ function App(){
         h(Bar,{label:"Magnesium",val:mg,max:T.magnesium,color:"#a855f7",unit:"mg"}),
         h("div",{style:{marginTop:10,padding:"9px 12px",borderRadius:10,background:"#f8fafc",display:"flex",alignItems:"center",gap:10}},
           h("div",{style:{width:36,height:36,borderRadius:"50%",background:lustig.color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:lustig.color}},lustig.score),
-          h("div",null,h("div",{style:{fontSize:12,fontWeight:700}},"Lustig Score — ",lustig.label),h("div",{style:{fontSize:10,color:"#64748b"}},"Anti-inflammation diet rating"))
+          h("div",null,h("div",{style:{fontSize:12,fontWeight:700}},"Lustig-style Score — ",lustig.label),h("div",{style:{fontSize:10,color:"#64748b"}},"Food-quality heuristic: sugar, protein density and processing"))
         )
       ),
       h("div",{style:card},
@@ -659,7 +734,7 @@ function App(){
       h("div",{style:card},
         h("div",{style:stt},"Meals (",day.meals.length,")"),
         day.meals.length===0&&h("div",{style:{color:"#94a3b8",fontSize:12,textAlign:"center",padding:"8px 0"}},"No meals yet — tap Food tab"),
-        ...day.meals.slice(-4).map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u)}))
+        ...day.meals.slice(-4).map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u),onSave:()=>saveMealToLibrary(m),isSaved:isMealSaved(m)}))
       ),
       h("div",{style:card},
         h("div",{style:stt},"Training"),
@@ -699,7 +774,7 @@ function App(){
               h("div",{style:{fontSize:10,color:"#94a3b8"}},item.cal,"kcal · ",item.protein,"g P · ",item.sugar,"g S · ",item.fat,"g F")
             ),
             h("div",{style:{display:"flex",gap:6}},
-              h("button",{onClick:()=>{setDay(p=>({...p,coffees:isCoffee(item.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{...item,lustig:item.lustig||0,id:Date.now()+Math.random()}]}));setPhotoItems(p=>p.filter((_,i)=>i!==idx));},style:{...btn("#10b981","white"),padding:"5px 12px",fontSize:11}},"Add"),
+              h("button",{onClick:()=>{setDay(p=>({...p,coffees:isCoffee(item.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{...item,id:Date.now()+Math.random()}]}));setPhotoItems(p=>p.filter((_,i)=>i!==idx));},style:{...btn("#10b981","white"),padding:"5px 12px",fontSize:11}},"Add"),
               h("button",{onClick:()=>setPhotoItems(p=>p.filter((_,i)=>i!==idx)),style:{...btn("#f1f5f9","#475569"),padding:"5px 8px",fontSize:11}},"✕")
             )
           ))
@@ -709,20 +784,7 @@ function App(){
         h("div",{style:stt},"Food Library"),
         h("input",{style:{...inp,marginBottom:10},placeholder:"Search foods...",value:fsearch,onChange:e=>setFsearch(e.target.value)}),
         h("div",{style:{maxHeight:320,overflowY:"auto"}},
-          ...ff.map((f,i)=>{
-            const q=getQ(f),isUnit=f.per===1;
-            return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #f8fafc",gap:8}},
-              h("div",{style:{flex:1,minWidth:0}},
-                h("div",{style:{fontSize:12,fontWeight:600}},f.name),
-                h("div",{style:{fontSize:10,color:"#94a3b8"}},sc2(f,"cal"),"kcal · ",sc2(f,"protein"),"g P · ",sc2(f,"sugar"),"g S")
-              ),
-              h("div",{style:{display:"flex",alignItems:"center",gap:5,flexShrink:0}},
-                h("input",{type:"number",min:isUnit?1:5,max:isUnit?20:2000,step:isUnit?1:5,value:q,onChange:e=>setQtys(p=>({...p,[f.name]:+e.target.value})),style:{width:50,padding:"5px 5px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12,fontWeight:700,textAlign:"center",outline:"none",background:"#f8fafc"}}),
-                h("span",{style:{fontSize:10,color:"#94a3b8",minWidth:12}},isUnit?"×":"g"),
-                h("button",{onClick:()=>addFood(f),style:{...btn("#0f172a","white"),padding:"6px 10px",fontSize:13,borderRadius:8}},"+")
-              )
-            );
-          })
+          ...ff.map(f=>h(LibraryFoodRow,{key:f.id,food:f,qty:getQ(f),onQtyChange:v=>setQtys(p=>({...p,[foodKey(f)]:v})),onAdd:()=>addFood(f),onEdit:u=>updateLibraryFood(f.id,u),onDelete:()=>deleteLibraryFood(f.id)}))
         )
       ),
       h("div",{style:card},
@@ -744,7 +806,7 @@ function App(){
       ),
       day.meals.length>0&&h("div",{style:card},
         h("div",{style:stt},"Today's Meals (",day.meals.length,")"),
-        ...day.meals.map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u)}))
+        ...day.meals.map(m=>h(FoodRow,{key:m.id,meal:m,onDelete:()=>delFood(m.id),onEdit:u=>editFood(m.id,u),onSave:()=>saveMealToLibrary(m),isSaved:isMealSaved(m)}))
       ),
       h("div",{style:card},
         h("div",{style:stt},"Supplements"),
