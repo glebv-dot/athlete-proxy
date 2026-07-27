@@ -190,12 +190,46 @@ async function estimateMacros(name){
 }
 
 async function analyzePhoto(b64,mime){
+  const res=await callProxy({model:"claude-haiku-4-5-20251001",max_tokens:1000,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:`Identify all food items in this photo and estimate macros per item. Reply ONLY with a JSON array, no markdown, no explanation. Format: [{"name":"Food Name","cal":300,"protein":25,"sugar":5,"fat":10}]. If no food detected, return [].`}]}]});
+  const data=await res.json();
+  if(!res.ok)throw new Error(data?.error?.message||"The photo analysis service rejected this image.");
+  const text=data.content?.[0]?.text;
+  if(!text)throw new Error("The photo analysis service returned no result.");
+  const items=JSON.parse(text.replace(/```json|```/g,"").trim());
+  if(!Array.isArray(items))throw new Error("The photo analysis result was invalid.");
+  return items;
+}
+
+// Gallery photos can be HEIC/HEIF and are often too large for the API request.
+// Decode them in the browser, resize them, and always send a supported JPEG.
+async function preparePhoto(file){
+  if(!file)throw new Error("No photo selected.");
+  const looksLikeImage=(file.type||"").startsWith("image/")||/\.(heic|heif|jpe?g|png|gif|webp)$/i.test(file.name||"");
+  if(!looksLikeImage)throw new Error("Please choose an image file.");
+
+  const url=URL.createObjectURL(file);
   try{
-    const res=await callProxy({model:"claude-haiku-4-5-20251001",max_tokens:1000,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:`Identify all food items in this photo and estimate macros per item. Reply ONLY with a JSON array, no markdown, no explanation. Format: [{"name":"Food Name","cal":300,"protein":25,"sugar":5,"fat":10}]. If no food detected, return [].`}]}]});
-    const data=await res.json();
-    const text=data.content?.[0]?.text||"[]";
-    return JSON.parse(text.replace(/```json|```/g,"").trim());
-  }catch(e){console.error("analyzePhoto error:",e);return [];}
+    const img=await new Promise((resolve,reject)=>{
+      const el=new Image();
+      el.onload=()=>resolve(el);
+      el.onerror=()=>reject(new Error("This photo format could not be opened. Try exporting it as JPEG."));
+      el.src=url;
+    });
+    const maxDimension=1600;
+    const scale=Math.min(1,maxDimension/Math.max(img.naturalWidth,img.naturalHeight));
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));
+    canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+    const ctx=canvas.getContext("2d");
+    if(!ctx)throw new Error("This browser could not prepare the photo.");
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    const dataUrl=canvas.toDataURL("image/jpeg",0.85);
+    const b64=dataUrl.split(",")[1];
+    if(!b64)throw new Error("This browser could not prepare the photo.");
+    return{b64,mime:"image/jpeg"};
+  }finally{
+    URL.revokeObjectURL(url);
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -427,11 +461,13 @@ function App(){
   const [cex,setCex]=useState({name:"",tag:"push",sets:3,reps:10,weight:0,unit:"kg",note:""});
   const [photoItems,setPhotoItems]=useState(null);
   const [photoLoading,setPhotoLoading]=useState(false);
+  const [photoError,setPhotoError]=useState("");
   const [showFinish,setShowFinish]=useState(false);
   const [saveFlash,setSaveFlash]=useState(false);
   const [logRange,setLogRange]=useState(()=>loadG("logRange",14));
   const [chartHidden,setChartHidden]=useState({});
-  const fileRef=useRef();
+  const cameraRef=useRef();
+  const libraryRef=useRef();
 
   useEffect(()=>{
     const d=loadDay(viewDate)||emptyDay();
@@ -512,15 +548,21 @@ function App(){
   };
 
   const handlePhoto=async(e)=>{
-    const file=e.target.files[0];if(!file)return;
-    setPhotoLoading(true);setPhotoItems(null);
-    const reader=new FileReader();
-    reader.onload=async(ev)=>{
-      const items=await analyzePhoto(ev.target.result.split(",")[1],file.type);
-      setPhotoItems(items||[]);setPhotoLoading(false);
-    };
-    reader.readAsDataURL(file);
-    e.target.value="";
+    const input=e.currentTarget;
+    const file=input.files&&input.files[0];
+    input.value="";
+    if(!file)return;
+    setPhotoLoading(true);setPhotoItems(null);setPhotoError("");
+    try{
+      const prepared=await preparePhoto(file);
+      const items=await analyzePhoto(prepared.b64,prepared.mime);
+      setPhotoItems(items);
+    }catch(err){
+      console.error("handlePhoto error:",err);
+      setPhotoError(err?.message||"Could not analyze this photo. Please try another image.");
+    }finally{
+      setPhotoLoading(false);
+    }
   };
 
   const handleSaveProgress=()=>{saveDay(viewDate,{...day,exs});setSaveFlash(true);setTimeout(()=>setSaveFlash(false),2000);};
@@ -640,9 +682,15 @@ function App(){
     tab==="food"&&h("div",null,
       h("div",{style:card},
         h("div",{style:stt},"📷 Photo Log"),
-        h("input",{type:"file",accept:"image/*",capture:"environment",ref:fileRef,onChange:handlePhoto}),
-        h("button",{onClick:()=>fileRef.current&&fileRef.current.click(),disabled:photoLoading,style:{...btn(photoLoading?"#94a3b8":"#0f172a","white"),width:"100%",padding:11,marginBottom:10,opacity:photoLoading?0.7:1}},photoLoading?"🔍 AI is identifying your food...":"📷 Take / Upload Photo → AI Identify"),
-        photoItems&&photoItems.length===0&&h("div",{style:{textAlign:"center",color:"#94a3b8",fontSize:12,padding:"6px 0"}},"No food detected — try a clearer photo"),
+        h("input",{type:"file",accept:"image/*",capture:"environment",ref:cameraRef,onChange:handlePhoto}),
+        h("input",{type:"file",accept:"image/*",ref:libraryRef,onChange:handlePhoto}),
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
+          h("button",{onClick:()=>cameraRef.current&&cameraRef.current.click(),disabled:photoLoading,style:{...btn(photoLoading?"#94a3b8":"#0f172a","white"),width:"100%",padding:11,opacity:photoLoading?0.7:1}},"📷 Take Photo"),
+          h("button",{onClick:()=>libraryRef.current&&libraryRef.current.click(),disabled:photoLoading,style:{...btn(photoLoading?"#e2e8f0":"#e0f2fe",photoLoading?"#94a3b8":"#0369a1"),width:"100%",padding:11,opacity:photoLoading?0.7:1}},"🖼 Choose Photo")
+        ),
+        photoLoading&&h("div",{style:{textAlign:"center",color:"#64748b",fontSize:12,padding:"4px 0 10px"}},"🔍 AI is identifying your food..."),
+        photoError&&h("div",{style:{textAlign:"center",color:"#dc2626",background:"#fef2f2",borderRadius:9,fontSize:12,padding:"9px 10px",marginBottom:10}},photoError),
+        !photoError&&photoItems&&photoItems.length===0&&h("div",{style:{textAlign:"center",color:"#94a3b8",fontSize:12,padding:"6px 0"}},"No food detected — try a clearer photo"),
         photoItems&&photoItems.length>0&&h("div",null,
           h("div",{style:{fontSize:10,color:"#64748b",marginBottom:8,fontWeight:600}},`${photoItems.length} item${photoItems.length>1?"s":""} detected — tap Add to log`),
           photoItems.map((item,idx)=>h("div",{key:idx,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 10px",borderRadius:9,background:"#f8fafc",marginBottom:6}},
