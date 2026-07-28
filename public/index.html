@@ -1084,12 +1084,12 @@ function App(){
             const d=new Date();d.setDate(d.getDate()-(logRange-1-i));const dk=fmtKey(d);const data=loadDay(dk);
             const t=((data&&data.meals)||[]).reduce((a,m)=>({cal:a.cal+(m.cal||0),protein:a.protein+(m.protein||0),sugar:a.sugar+(m.sugar||0),fat:a.fat+(m.fat||0)}),{cal:0,protein:0,sugar:0,fat:0});
             return t.cal>=1000?{dk,...t}:{dk,cal:null,protein:null,sugar:null,fat:null};
-          }),
+          }).filter(d=>d.cal!==null),
           metrics:[{key:"cal",label:"Calories",color:"#3b82f6",unit:" kcal"},{key:"protein",label:"Protein",color:"#10b981",unit:"g"},{key:"sugar",label:"Sugar",color:"#ef4444",unit:"g"},{key:"fat",label:"Fat",color:"#f59e0b",unit:"g"}],
           hidden:chartHidden,
           onToggle:(k)=>setChartHidden(p=>({...p,[k]:!p[k]}))
         }),
-        h("div",{style:{fontSize:9,color:"#cbd5e1",marginTop:6}},"Days below 1,000 kcal are treated as incomplete and shown as gaps · each line auto-scaled · tap a metric to show/hide")
+        h("div",{style:{fontSize:9,color:"#cbd5e1",marginTop:6}},"Only complete food logs (1,000+ kcal) are plotted and connected · each line auto-scaled · tap a metric to show/hide")
       ),
       h("div",{style:card},
         h("div",{style:stt},`Past ${logRange} Days`),
