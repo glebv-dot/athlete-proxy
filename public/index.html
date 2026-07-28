@@ -302,27 +302,31 @@ function TrendChart({data,metrics,hidden,onToggle}){
   const n=data.length;
   const innerW=W-padL-padR,innerH=H-padT-padB;
   const xAt=(i)=>n<=1?padL+innerW/2:padL+i*innerW/(n-1);
-  const maxOf=(k)=>Math.max(1,...data.map(d=>d[k]||0));
+  const hasValue=(v)=>Number.isFinite(v);
+  const maxOf=(k)=>Math.max(1,...data.map(d=>d[k]).filter(hasValue));
   const yAt=(v,k)=>padT+innerH*(1-(v/maxOf(k)));
-  const path=(m)=>data.map((d,i)=>`${i?"L":"M"}${xAt(i).toFixed(1)} ${yAt(d[m.key]||0,m.key).toFixed(1)}`).join(" ");
+  const path=(m)=>{let drawing=false;return data.map((d,i)=>{const v=d[m.key];if(!hasValue(v)){drawing=false;return"";}const cmd=drawing?"L":"M";drawing=true;return`${cmd}${xAt(i).toFixed(1)} ${yAt(v,m.key).toFixed(1)}`;}).filter(Boolean).join(" ");};
+  const latestFor=(k)=>{for(let i=n-1;i>=0;i--)if(hasValue(data[i][k]))return{point:data[i],index:i};return null;};
   const fmtX=(dk)=>{const d=new Date(dk+"T12:00:00");return d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});};
   const visible=metrics.filter(m=>!hidden[m.key]);
   const xIdx=n<=1?[0]:[0,Math.floor((n-1)/2),n-1];
+  const validDays=data.filter(d=>hasValue(d.cal)).length;
   return h("div",null,
     h("svg",{viewBox:`0 0 ${W} ${H}`,style:{width:"100%",height:"auto",display:"block"}},
       ...[0,0.25,0.5,0.75,1].map((g,gi)=>h("line",{key:"g"+gi,x1:padL,x2:W-padR,y1:(padT+innerH*g).toFixed(1),y2:(padT+innerH*g).toFixed(1),stroke:"#f1f5f9",strokeWidth:1})),
       ...visible.map(m=>h("path",{key:"p"+m.key,d:path(m),fill:"none",stroke:m.color,strokeWidth:2,strokeLinejoin:"round",strokeLinecap:"round"})),
-      ...visible.map(m=>h("circle",{key:"d"+m.key,cx:xAt(n-1).toFixed(1),cy:yAt(data.length?data[n-1][m.key]||0:0,m.key).toFixed(1),r:2.6,fill:m.color})),
+      ...visible.map(m=>{const latest=latestFor(m.key);return latest&&h("circle",{key:"d"+m.key,cx:xAt(latest.index).toFixed(1),cy:yAt(latest.point[m.key],m.key).toFixed(1),r:2.6,fill:m.color});}),
+      validDays===0&&h("text",{x:W/2,y:padT+innerH/2,textAnchor:"middle",fontSize:10,fill:"#94a3b8"},"No complete food logs in this range"),
       ...xIdx.map((i,li)=>h("text",{key:"x"+li,x:xAt(i).toFixed(1),y:H-5,textAnchor:li===0?"start":li===xIdx.length-1?"end":"middle",fontSize:8,fill:"#94a3b8"},data[i]?fmtX(data[i].dk):""))
     ),
     h("div",{style:{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}},
       ...metrics.map(m=>{
-        const latest=data.length?Math.round(data[n-1][m.key]||0):0;
+        const latestPoint=latestFor(m.key),latest=latestPoint?Math.round(latestPoint.point[m.key]):null;
         const off=!!hidden[m.key];
         return h("div",{key:m.key,onClick:()=>onToggle(m.key),style:{display:"flex",alignItems:"center",gap:5,cursor:"pointer",opacity:off?0.4:1,padding:"3px 8px",borderRadius:8,background:"#f8fafc"}},
           h("span",{style:{width:12,height:3,borderRadius:2,background:m.color,display:"inline-block"}}),
           h("span",{style:{fontSize:10,fontWeight:600,color:"#475569"}},m.label),
-          h("span",{style:{fontSize:10,color:"#94a3b8"}},`${latest}${m.unit}`)
+          h("span",{style:{fontSize:10,color:"#94a3b8"}},latest===null?"—":`${latest}${m.unit}`)
         );
       })
     )
@@ -1079,13 +1083,13 @@ function App(){
           data:Array.from({length:logRange},(_,i)=>{
             const d=new Date();d.setDate(d.getDate()-(logRange-1-i));const dk=fmtKey(d);const data=loadDay(dk);
             const t=((data&&data.meals)||[]).reduce((a,m)=>({cal:a.cal+(m.cal||0),protein:a.protein+(m.protein||0),sugar:a.sugar+(m.sugar||0),fat:a.fat+(m.fat||0)}),{cal:0,protein:0,sugar:0,fat:0});
-            return{dk,...t};
-          }),
+            return t.cal>=1000?{dk,...t}:{dk,cal:null,protein:null,sugar:null,fat:null};
+          }).filter(d=>d.cal!==null),
           metrics:[{key:"cal",label:"Calories",color:"#3b82f6",unit:" kcal"},{key:"protein",label:"Protein",color:"#10b981",unit:"g"},{key:"sugar",label:"Sugar",color:"#ef4444",unit:"g"},{key:"fat",label:"Fat",color:"#f59e0b",unit:"g"}],
           hidden:chartHidden,
           onToggle:(k)=>setChartHidden(p=>({...p,[k]:!p[k]}))
         }),
-        h("div",{style:{fontSize:9,color:"#cbd5e1",marginTop:6}},"Each line auto-scaled to its own range · tap a metric to show/hide")
+        h("div",{style:{fontSize:9,color:"#cbd5e1",marginTop:6}},"Only complete food logs (1,000+ kcal) are plotted and connected · each line auto-scaled · tap a metric to show/hide")
       ),
       h("div",{style:card},
         h("div",{style:stt},`Past ${logRange} Days`),
@@ -1095,15 +1099,17 @@ function App(){
           const data=loadDay(dk);
           const label=i===0?"Today":i===1?"Yesterday":d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"});
           const mt=data?.meals?.reduce((a,m)=>({cal:a.cal+(m.cal||0),protein:a.protein+(m.protein||0),sugar:a.sugar+(m.sugar||0)}),{cal:0,protein:0,sugar:0});
+          const chartEligible=!!(mt&&mt.cal>=1000);
           const lg=data?calcLustig(data.meals||[],mt?.sugar||0):null;
           return h("div",{key:dk,onClick:()=>{setViewDate(dk);setTab("dash");},style:{padding:"9px 0",borderBottom:"1px solid #f8fafc",cursor:"pointer"}},
             h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
               h("div",null,
                 h("div",{style:{fontSize:12,fontWeight:700,color:viewDate===dk?"#3b82f6":"#1e293b"}},label,data?.finalized&&h("span",{style:{fontSize:9,color:"#10b981",marginLeft:6}},"✓")),
-                data?h("div",{style:{fontSize:10,color:"#94a3b8"}},Math.round(mt.cal),"kcal · ",Math.round(mt.protein),"g P · ",Math.round(mt.sugar),"g S",data.weight?" · "+data.weight+"kg":"",data.sleepScore?" · Sleep "+data.sleepScore:"")
+                chartEligible?h("div",{style:{fontSize:10,color:"#94a3b8"}},Math.round(mt.cal),"kcal · ",Math.round(mt.protein),"g P · ",Math.round(mt.sugar),"g S",data.weight?" · "+data.weight+"kg":"",data.sleepScore?" · Sleep "+data.sleepScore:"")
+                :data?h("div",{style:{fontSize:10,color:"#cbd5e1"}},"Incomplete food log · excluded from chart",data.weight?" · "+data.weight+"kg":"",data.sleepScore?" · Sleep "+data.sleepScore:"")
                 :h("div",{style:{fontSize:10,color:"#cbd5e1"}},"No data")
               ),
-              data&&h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+              chartEligible&&h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
                 lg&&h("span",{style:{fontSize:11,fontWeight:700,color:lg.color}},lg.score),
                 h("span",{style:pill(mt.sugar<=50?"#f0fdf4":"#fef2f2",mt.sugar<=50?"#16a34a":"#ef4444")},mt.sugar<=50?"✓":"⚠")
               )
