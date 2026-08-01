@@ -387,16 +387,17 @@ function LibraryFoodRow({food,qty,onQtyChange,onAdd,onEdit,onDelete}){
     )
   );
   const isUnit=food.per===1;
-  const scaled=(field)=>Math.round(((food[field]||0)*(qty/food.per))*10)/10;
+  const numericQty=Number(qty),hasQty=qty!==""&&Number.isFinite(numericQty)&&numericQty>0;
+  const scaled=(field)=>hasQty?Math.round(((food[field]||0)*(numericQty/food.per))*10)/10:"—";
   return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #f8fafc",gap:8}},
     h("div",{style:{flex:1,minWidth:0}},
       h("div",{style:{fontSize:12,fontWeight:600}},food.name),
       h("div",{style:{fontSize:10,color:"#94a3b8"}},scaled("cal"),"kcal · ",scaled("protein"),"g P · ",scaled("sugar"),"g S · ",scaled("fat"),"g F")
     ),
     h("div",{style:{display:"flex",alignItems:"center",gap:4,flexShrink:0}},
-      h("input",{type:"number",min:isUnit?1:5,max:isUnit?20:2000,step:isUnit?1:5,value:qty,onChange:e=>onQtyChange(+e.target.value),style:{width:48,padding:"5px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12,fontWeight:700,textAlign:"center",outline:"none",background:"#f8fafc"}}),
+      h("input",{type:"number",min:isUnit?1:5,max:isUnit?20:2000,step:isUnit?1:5,value:qty,onChange:e=>onQtyChange(e.target.value),style:{width:48,padding:"5px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12,fontWeight:700,textAlign:"center",outline:"none",background:"#f8fafc"}}),
       h("span",{style:{fontSize:10,color:"#94a3b8"}},isUnit?"×":"g"),
-      h("button",{onClick:onAdd,style:{...btn("#0f172a","white"),padding:"6px 9px",fontSize:13,borderRadius:8}},"+"),
+      h("button",{onClick:onAdd,disabled:!hasQty,style:{...btn(hasQty?"#0f172a":"#cbd5e1","white"),padding:"6px 9px",fontSize:13,borderRadius:8,cursor:hasQty?"pointer":"not-allowed"}},"+"),
       !confirmingDelete&&h("button",{onClick:openEdit,title:"Edit library item","aria-label":`Edit ${food.name}`,style:{background:"none",border:"none",color:"#64748b",fontSize:13,cursor:"pointer",padding:"3px"}},"✏️"),
       !confirmingDelete&&h("button",{onClick:()=>setConfirmingDelete(true),title:"Delete library item","aria-label":`Delete ${food.name}`,style:{background:"none",border:"none",color:"#fca5a5",fontSize:14,cursor:"pointer",padding:"3px"}},"✕"),
       confirmingDelete&&h("button",{onClick:onDelete,"aria-label":`Confirm delete ${food.name}`,style:{...btn("#ef4444","white"),padding:"5px 7px",fontSize:10}},"Delete?"),
@@ -598,7 +599,8 @@ function App(){
   const today=new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
 
   const addFood=(f)=>{
-    const q=getQ(f),mult=q/f.per;
+    const rawQty=getQ(f),q=Number(rawQty);if(rawQty===""||!Number.isFinite(q)||q<=0)return;
+    const mult=q/f.per;
     setDay(p=>({...p,coffees:isCoffee(f.name)?(p.coffees||0)+1:p.coffees,meals:[...p.meals,{name:`${f.name} (${q}${f.per===1?"×":"g"})`,cal:Math.round((f.cal||0)*mult),protein:Math.round((f.protein||0)*mult*10)/10,sugar:Math.round((f.sugar||0)*mult*10)/10,fat:Math.round((f.fat||0)*mult*10)/10,omega3:Math.round((f.omega3||0)*mult*10)/10,id:Date.now()+Math.random()}]}));
     setFsearch("");
   };
